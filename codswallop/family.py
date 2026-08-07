@@ -16,7 +16,14 @@ import time
 from collections import Counter
 from typing import Optional
 
-from . import config, db, layout, rcsb
+from . import (config, constructs as construct_engine, db, instances, layout,
+               rcsb, uniprot)
+
+# How many distinct UniProt references a family will fetch canonicals for. A family is
+# dominated by a handful of accessions (carbonic anhydrase II: 1,249 of 1,490 entities are
+# P00918, and 12 accessions cover almost all the rest), so this cap costs nothing real while
+# stopping a diverse family from making a hundred UniProt calls.
+MAX_REFERENCES = 40
 
 
 def slugify(text: str, fallback: str = "family") -> str:
@@ -151,6 +158,10 @@ def decorate(fam: dict) -> dict:
 
     members.sort(key=lambda m: (m.get("resolution") is None, m.get("resolution") or 999, m["entity_id"]))
     fam["members"] = members
+    # Density BEFORE the statistics, not after: the coverage census reads `unobserved_seed`
+    # off each member, and summarising first would compute the whole census against members
+    # that do not have it yet and silently report "not measured" for every family.
+    _attach_density(fam, members)
     fam["stats"] = summarise(fam, members)
     # Lay out against the identity range actually present, not the nominal 30 % floor. On a
     # family large enough to hit the cap, every surviving member can sit above 95 % identity,
@@ -161,7 +172,103 @@ def decorate(fam: dict) -> dict:
     fam["map"] = layout.compute(members, min(floor, config.IDENTITY_MAX - 1))
 
     _compact(fam, members)
+
+    # Constructs need the deduplicated sequence table and the seq_id back-references that
+    # _compact creates, so this runs after it. Cached on the exact set of sequences, because
+    # the diff is ~0.4 s for a 232-construct family and nothing about it changes between
+    # requests: a warm page must stay warm.
+    fam["constructs"] = db.cached(
+        ("constructs", construct_engine.ENGINE_VERSION, sorted(fam["sequences"])),
+        lambda: build_constructs(members, fam["sequences"]),
+    )
+    _apply_constructs(fam, members)
+    fam["domains"] = build_domains(fam, members)
+    fam["orthologues"] = build_orthologue_matrix(members, fam.get("seed_length") or 0)
+    fam.pop("domains_by_entity", None)      # per-chain detail: aggregated, not shipped
     return fam
+
+
+def _attach_density(fam: dict, members: list[dict]) -> None:
+    """Fetch per-chain unobserved regions and map them onto seed coordinates.
+
+    The API reports unobserved residues in the entity's own SEQRES numbering. Everything else
+    in this app speaks seed coordinates, and the two differ by exactly the offset the sequence
+    search already measured: an entity aligning from its residue `subject_beg` to the seed's
+    `query_beg`. Mapping through that offset is what lets one census cover a family whose
+    members have different tags, truncations and numbering.
+    """
+    ids = instances.representative_ids(members)
+    if not ids:
+        return
+    try:
+        data = instances.fetch(ids)
+    except Exception:
+        # Density is an enhancement, not the page. A family that still renders without it is
+        # better than one that 502s because a second API had a bad afternoon.
+        return
+
+    domains_by_entity: dict[str, list] = {}
+    for m in members:
+        chains = m.get("chains") or []
+        if not chains:
+            continue
+        rec = data.get(f"{m['pdb_id']}.{chains[0]}")
+        if not rec:
+            continue
+
+        # SEQRES -> seed. The aligned block starts at seed `query_beg` and at construct
+        # position `q_start`; RCSB gives the latter as 1-based, and the search hit carries
+        # the former. Without the offset every truncated construct would report its disorder
+        # shifted by the length of its own truncation.
+        beg = m.get("query_beg")
+        if beg is None:
+            continue
+        offset = beg - 1                      # seed position of SEQRES residue 1, 0-based
+        m["unobserved_seed"] = [
+            (u_start + offset, u_end + offset) for u_start, u_end in rec["unobserved"]
+        ]
+        m["chain_sampled"] = rec.get("chain")
+        if rec["domains"]:
+            domains_by_entity[m["entity_id"]] = rec["domains"]
+
+    fam["domains_by_entity"] = domains_by_entity
+
+
+def _apply_constructs(fam: dict, members: list[dict]) -> None:
+    """Push each construct's verdict back onto the members that use it, and correct the
+    Phase 1 statistics it supersedes."""
+    by_seq = {c["seq_id"]: c for c in fam["constructs"]}
+    real_fusions = 0
+    engineered = 0
+    tagged = 0
+    for m in members:
+        c = by_seq.get(m.get("seq_id"))
+        if not c:
+            continue
+        m["construct_summary"] = c["summary"]
+        m["tags"] = c["tags"]
+        m["fusions"] = c["fusions"]
+        m["engineered"] = c["engineered"]
+        m["mutation_count"] = c["mutation_count"]
+        # The real answer replaces the Phase 1 length heuristic. Keep the old verdict under
+        # its own name rather than silently overwriting it: the two disagreeing is the
+        # interesting case, and it is how the heuristic's error rate was measured.
+        m["is_fusion_heuristic"] = m["is_fusion"]
+        m["is_fusion"] = bool(c["fusions"])
+        if c["fusions"]:
+            real_fusions += 1
+        if c["engineered"]:
+            engineered += 1
+        if c["tags"]:
+            tagged += 1
+
+    s = fam["stats"]
+    s["fusions_heuristic"] = s["fusions"]
+    s["fusions"] = real_fusions
+    s["engineered"] = engineered
+    s["tagged"] = tagged
+    s["constructs_engineered"] = sum(1 for c in fam["constructs"] if c["engineered"])
+    s["constructs_unreferenced"] = sum(1 for c in fam["constructs"] if c["engineered"] is None)
 
 
 def _compact(fam: dict, members: list[dict]) -> None:
@@ -247,6 +354,223 @@ _NON_LIGANDS = {
 }
 
 
+def build_constructs(members: list[dict], sequences: dict[str, str]) -> list[dict]:
+    """One row per unique deposited sequence, diffed against its own reference.
+
+    The diff is run against **each construct's own UniProt canonical**, not against the
+    family seed. Diffing everything against the seed looks reasonable and is wrong: a
+    paralogue sitting at 45 % identity produces 150 "mutations", which is arithmetically
+    true and useless as construct advice. The first version did exactly that and reported
+    carbonic anhydrase I entries as hundred-mutation variants of carbonic anhydrase II.
+
+    Entities with no UniProt cross-reference keep a row and say so, rather than being
+    silently dropped or diffed against something they are not.
+    """
+    from collections import Counter
+
+    by_seq: dict[str, list[dict]] = {}
+    for m in members:
+        if m.get("seq_id"):
+            by_seq.setdefault(m["seq_id"], []).append(m)
+
+    # Which references are worth fetching, most-used first. Counted over *every* accession an
+    # entity carries, not just its first, so a family's own protein still dominates the count
+    # when half its chimeras happen to list the fusion partner first.
+    acc_counts: Counter = Counter()
+    for m in members:
+        for a in (m.get("uniprot_ids") or ([m["uniprot"]] if m.get("uniprot") else [])):
+            acc_counts[a] += 1
+    wanted = [a for a, _ in acc_counts.most_common(MAX_REFERENCES)]
+    # The family's own protein: the accession the most entities carry. This is the reference
+    # a chimera must be diffed against, and getting it from the family rather than from the
+    # entity is the whole point of being family-centric.
+    dominant = acc_counts.most_common(1)[0][0] if acc_counts else None
+    references: dict[str, dict] = {}
+    for acc in wanted:
+        rec = uniprot.entry(acc)
+        if rec and rec.get("sequence"):
+            references[acc] = {"sequence": rec["sequence"], "name": rec.get("name"),
+                               "organism": rec.get("organism"), "length": rec.get("length"),
+                               "features": uniprot.features(acc)}
+
+    rows: list[dict] = []
+    for seq_id, users in by_seq.items():
+        seq = sequences.get(seq_id)
+        if not seq:
+            continue
+        # Which of this construct's accessions to diff against.
+        #
+        # The family's own protein wins whenever the construct carries it. A chimera is
+        # cross-referenced to everything it is made of, and the order RCSB lists them in is
+        # not meaningful: 2RH1, the beta-2 adrenergic receptor-T4 lysozyme fusion, lists
+        # T4 lysozyme (164 aa) first. Taking the head of that list made the diff run
+        # backwards, reporting the 500-residue chimera as a T4 lysozyme with the entire
+        # receptor hanging off it as two unexplained overhangs, and no fusion at all.
+        # Against the receptor, the same construct reads as a receptor with T4 lysozyme
+        # replacing intracellular loop 3, which is what it is.
+        candidates: list[str] = []
+        for m in users:
+            candidates.extend(m.get("uniprot_ids") or
+                              ([m["uniprot"]] if m.get("uniprot") else []))
+        acc = None
+        if dominant and dominant in candidates:
+            acc = dominant
+        elif candidates:
+            acc = Counter(candidates).most_common(1)[0][0]
+        ref = references.get(acc)
+
+        entry = {
+            "seq_id": seq_id,
+            "length": len(seq),
+            "n_entities": len(users),
+            "n_entries": len({m["pdb_id"] for m in users}),
+            "pdb_ids": sorted({m["pdb_id"] for m in users})[:60],
+            "entity_ids": [m["entity_id"] for m in users],
+            "uniprot": acc,
+            "reference_name": (ref or {}).get("name"),
+            "organism": Counter(m.get("organism") for m in users).most_common(1)[0][0],
+            "description": Counter(m.get("description") for m in users).most_common(1)[0][0],
+        }
+
+        resolutions = [m["resolution"] for m in users if m.get("resolution") is not None]
+        entry["best_resolution"] = min(resolutions) if resolutions else None
+        entry["median_resolution"] = (sorted(resolutions)[len(resolutions) // 2]
+                                      if resolutions else None)
+        entry["best_pdb_id"] = min(
+            (m for m in users if m.get("resolution") is not None),
+            key=lambda m: m["resolution"], default={}).get("pdb_id")
+        entry["holo"] = sum(1 for m in users if m.get("has_ligand"))
+
+        if ref:
+            d = construct_engine.diff(ref["sequence"], seq, ref["features"])
+            entry["diff"] = d
+            entry["summary"] = construct_engine.summarise(d)
+            entry["engineered"] = bool(d.get("is_engineered"))
+            entry["tags"] = d.get("tags") or []
+            entry["fusions"] = d.get("fusions") or []
+            entry["proteases"] = d.get("proteases") or []
+            entry["mutation_count"] = d.get("mutation_count") or 0
+        else:
+            entry["diff"] = None
+            entry["summary"] = ("no UniProt reference for this entity, so it cannot be "
+                                "diffed against a canonical sequence")
+            entry["engineered"] = None
+            entry["tags"], entry["fusions"], entry["proteases"] = [], [], []
+            entry["mutation_count"] = 0
+
+        rows.append(entry)
+
+    # Most-used constructs first: "what did most people make" is the question this answers.
+    rows.sort(key=lambda r: (-r["n_entities"], r["length"]))
+    return rows
+
+
+def build_domains(fam: dict, members: list[dict]) -> dict:
+    """Consensus domain architecture, in seed coordinates.
+
+    Domains are assigned per deposited chain, so a family holds hundreds of assignments of
+    the same domain at slightly different boundaries. Reporting all of them is noise;
+    reporting one is a guess. This reports each distinct domain once, with the *median*
+    boundary across every chain that carries it and the number of chains that agreed, so a
+    reader can see both where the domain is and how firmly the databases agree it is there.
+    """
+    by_entity = fam.get("domains_by_entity") or {}
+    if not by_entity:
+        return {"sources": [], "domains": []}
+
+    offsets = {m["entity_id"]: (m.get("query_beg") or 1) - 1 for m in members}
+    grouped: dict[tuple, dict] = {}
+    for entity_id, doms in by_entity.items():
+        off = offsets.get(entity_id, 0)
+        for d in doms:
+            key = (d["source"], d["id"] or d["name"])
+            g = grouped.setdefault(key, {
+                "source": d["source"], "id": d["id"], "name": d["name"],
+                "starts": [], "ends": [], "n_chains": 0,
+            })
+            g["n_chains"] += 1
+            for beg, end in d["spans"]:
+                g["starts"].append(beg + off)
+                g["ends"].append(end + off)
+
+    seed_len = fam.get("seed_length") or 0
+    # A domain has to be seen on more than one chain, and on a non-trivial share of them, to
+    # be reported. Without this the list fills with domains belonging to *other proteins* in
+    # the complexes: p53's family picked up "Green fluorescent protein", "Annexin" and
+    # "Blc2-like", each on a single chain, because a partner chain in one entry carries them
+    # and the seed-coordinate offset that is correct for p53 is meaningless for them.
+    support = max(2, int(0.01 * max(1, len(members))))
+    out = []
+    dropped = 0
+    for g in grouped.values():
+        if not g["starts"] or g["n_chains"] < support:
+            dropped += 1
+            continue
+        starts, ends = sorted(g["starts"]), sorted(g["ends"])
+        start = starts[len(starts) // 2]
+        end = ends[len(ends) // 2]
+        # Independent medians of the two boundaries can invert on a domain whose assignments
+        # disagree wildly (p53 produced an "Annexin" at 418-393). An inverted or
+        # out-of-range span is evidence the mapping does not apply to this domain at all,
+        # so it is dropped rather than clamped into something plausible-looking.
+        if end <= start or start < 1 or (seed_len and start > seed_len):
+            dropped += 1
+            continue
+        out.append({
+            "source": g["source"], "id": g["id"], "name": g["name"],
+            "start": start, "end": min(seed_len, end) if seed_len else end,
+            "n_chains": g["n_chains"],
+        })
+
+    out.sort(key=lambda d: (d["source"], d["start"], -d["n_chains"]))
+    sources = sorted({d["source"] for d in out})
+    return {"sources": sources, "domains": out, "support": support,
+            "dropped": dropped}
+
+
+def build_orthologue_matrix(members: list[dict], seed_length: int) -> list[dict]:
+    """Which organisms have structures, at what coverage and what quality.
+
+    The question this answers is the one asked at the start of a project: somebody else has
+    probably solved this in a more tractable organism, and if their construct covers the
+    region you care about, that is where to start.
+    """
+    from collections import defaultdict
+    rows: dict[str, dict] = defaultdict(
+        lambda: {"entities": 0, "entries": set(), "resolutions": [], "covered": set(),
+                 "accessions": set(), "holo": 0})
+    for m in members:
+        org = m.get("organism") or "Unknown"
+        r = rows[org]
+        r["entities"] += 1
+        r["entries"].add(m["pdb_id"])
+        if m.get("resolution") is not None:
+            r["resolutions"].append(m["resolution"])
+        if m.get("uniprot"):
+            r["accessions"].add(m["uniprot"])
+        if m.get("has_ligand"):
+            r["holo"] += 1
+        beg, end = m.get("query_beg"), m.get("query_end")
+        if beg and end:
+            r["covered"].update(range(max(1, beg), min(seed_length or end, end) + 1))
+
+    out = []
+    for org, r in rows.items():
+        res = sorted(r["resolutions"])
+        out.append({
+            "organism": org,
+            "entities": r["entities"],
+            "entries": len(r["entries"]),
+            "best_resolution": res[0] if res else None,
+            "median_resolution": res[len(res) // 2] if res else None,
+            "coverage_pct": round(100 * len(r["covered"]) / seed_length, 1) if seed_length else None,
+            "accessions": sorted(r["accessions"])[:4],
+            "holo": r["holo"],
+        })
+    out.sort(key=lambda x: -x["entities"])
+    return out
+
+
 def summarise(fam: dict, members: list[dict]) -> dict:
     """The header stat strip, plus the breakdowns the filter chips are built from."""
     entries = fam["entries"]
@@ -309,6 +633,10 @@ def summarise(fam: dict, members: list[dict]) -> dict:
 # exists in somebody's construct, but hardly anybody's.
 THIN_FRACTION = 0.05
 
+# A residue resolved in under this fraction of the constructs that contained it is
+# "rarely resolved": present in the crystal, absent from the density.
+RARELY_RESOLVED = 0.25
+
 
 def coverage_census(fam: dict, members: list[dict]) -> dict:
     """How many of the family's constructs contain each residue of the seed.
@@ -348,6 +676,30 @@ def coverage_census(fam: dict, members: list[dict]) -> dict:
     uncovered = sum(1 for i in range(1, n + 1) if depth[i] == 0)
     thin = sum(1 for i in range(1, n + 1) if 0 < depth[i] < thin_cut)
 
+    # ---- the density layer, where it is available -----------------------------------
+    # How many constructs actually resolved each residue, as opposed to merely containing
+    # it. Kept as a separate array on the same axis rather than folded into `depth`: they
+    # are different questions and a reader who conflates them will design the wrong
+    # construct. Seen depth can never exceed construct depth, and the gap between the two
+    # curves is exactly the disorder.
+    seen = [0] * (n + 1)
+    have_density = False
+    for m in members:
+        beg, end = m.get("query_beg"), m.get("query_end")
+        unobs = m.get("unobserved_seed")
+        if not beg or not end or unobs is None:
+            continue
+        have_density = True
+        blocked = set()
+        for u_start, u_end in unobs:
+            blocked.update(range(max(1, u_start), min(n, u_end) + 1))
+        # Counted per residue directly. A difference array would be faster but the
+        # unobserved set fragments the span into arbitrarily many pieces, and the
+        # bookkeeping to express that as deltas is where an off-by-one lives.
+        for i in range(max(1, beg), min(n, end) + 1):
+            if i not in blocked:
+                seen[i] += 1
+
     # Runs of thin-or-absent coverage: the regions a construct designer should know about.
     gaps, start = [], None
     for i in range(1, n + 2):
@@ -360,11 +712,53 @@ def coverage_census(fam: dict, members: list[dict]) -> dict:
             start = None
 
     coverages = sorted((min(n, e) - max(1, b) + 1) / n for b, e in spans)
+    # "Resolved in no construct at all" is as strict a bar as the binary union was, and fails
+    # the same way: with 267 p53 constructs, something resolved almost every residue once, so
+    # the figure reads 0 % for a protein a third of which is famously disordered.
+    #
+    # The informative measure is the RATIO: of the constructs that contained this residue,
+    # what fraction actually resolved it. p53 residue 63 sits in 14 constructs and is resolved
+    # in 2; spike 1265 sits in 140 and is resolved in 6. That is the disorder, and it is what
+    # the flagged figure in the header reports.
+    never_seen = disorder = rarely = None
+    worst = []
+    if have_density:
+        never_seen = sum(1 for i in range(1, n + 1) if depth[i] > 0 and seen[i] == 0)
+        ratios = [(seen[i] / depth[i]) if depth[i] else None for i in range(n + 1)]
+        rarely = sum(1 for i in range(1, n + 1)
+                     if ratios[i] is not None and ratios[i] < RARELY_RESOLVED)
+        disorder = [round(r, 3) if r is not None else None for r in ratios[1:]]
+        # The runs a construct designer should know about: stretches resolved in under a
+        # quarter of the constructs that contained them, longest first.
+        run_start = None
+        for i in range(1, n + 2):
+            poor = i <= n and ratios[i] is not None and ratios[i] < RARELY_RESOLVED
+            if poor and run_start is None:
+                run_start = i
+            elif not poor and run_start is not None:
+                worst.append({"start": run_start, "end": i - 1, "length": i - run_start,
+                              "resolved_fraction": round(
+                                  min(ratios[j] for j in range(run_start, i)), 2)})
+                run_start = None
+        worst.sort(key=lambda w: -w["length"])
+        worst = worst[:12]
+
     return {
         "length": n,
         # One value per residue. A 1,273-residue seed is 1,273 small integers: a few kB of
-        # JSON, and the header sparkline and Phase 2's stacked plot both read it directly.
+        # JSON, and the header sparkline and the stacked plot both read it directly.
         "depth": depth[1:],
+        # The second curve: how many constructs actually RESOLVED each residue. None when no
+        # per-chain data was fetched, so the UI can say "not measured" rather than draw a
+        # flat zero and let a reader read it as total disorder.
+        "seen": seen[1:] if have_density else None,
+        "disorder": disorder,
+        "never_seen": never_seen,
+        "never_seen_pct": round(100 * never_seen / n, 1) if never_seen is not None else None,
+        "rarely_resolved": rarely,
+        "rarely_resolved_pct": round(100 * rarely / n, 1) if rarely is not None else None,
+        "rarely_cut": RARELY_RESOLVED,
+        "disorder_runs": worst,
         "max_depth": max(depth[1:]),
         "uncovered": uncovered,
         "pct": round(100 * uncovered / n, 1),

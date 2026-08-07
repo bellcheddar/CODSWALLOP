@@ -114,13 +114,23 @@
       { k: "Distinct ligands", v: commas(s.ligands) },
       { k: "Best resolution", v: res(s.best_resolution) },
       { k: "Median resolution", v: res(s.median_resolution) },
-      {
+      // Prefer the density figure once Phase 2 has measured it: "present in the construct
+      // but not in the density" is the question a construct designer actually has, and the
+      // construct-level figure reads 0 % for any well-studied protein. Falls back to the
+      // Phase 1 figure, labelled differently, when no per-chain data was available.
+      (c.rarely_resolved_pct != null ? {
+        k: "Rarely resolved", flag: true,
+        v: c.rarely_resolved_pct + '%<small> of seed</small>',
+        title: c.rarely_resolved + " of " + c.length + " seed residues are resolved in under " +
+          Math.round(c.rarely_cut * 100) + "% of the constructs that contained them. " +
+          "Present in the crystal, absent from the density."
+      } : {
         k: "Thinly covered", flag: true,
         v: c.thin_pct + '%<small> of seed</small>',
         title: "Seed residues present in fewer than " + c.thin_cut + " of the family's " +
-          "constructs (" + c.thin + " of " + c.length + " residues). Phase 2 adds the " +
-          "harder question: which of them has nobody ever seen density for."
-      },
+          "constructs (" + c.thin + " of " + c.length + " residues). Per-chain density was " +
+          "not available for this family."
+      }),
       {
         k: "Median construct", v: c.median_coverage + '%<small> of seed</small>',
         title: "The median deposited construct contains this fraction of the seed sequence."
@@ -787,6 +797,223 @@
   }
 
   /* ==================================================================================
+     10b. Phase 2: sequences, constructs, domains
+     ================================================================================== */
+
+  /* Two curves on one axis. The blue is how many constructs CONTAIN each residue; the green
+     is how many actually RESOLVED it. The gap between them is the disorder, and drawing them
+     together is the whole point: either curve alone answers a different question, and a
+     reader who conflates them designs the wrong construct. */
+  function renderCoverage2() {
+    var c = S.family.stats.coverage;
+    var svg = $("coverage2");
+    var depth = c.depth || [];
+    if (!depth.length) { svg.innerHTML = ""; return; }
+    var seen = c.seen;
+
+    var W = 1000, H = 96, pad = 14, base = H - 16;
+    var n = depth.length, maxd = c.max_depth || 1;
+    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    svg.setAttribute("preserveAspectRatio", "none");
+    var bw = (W - pad * 2) / n, parts = [];
+
+    for (var i = 0; i < n; i++) {
+      var x = (pad + i * bw).toFixed(2), w = Math.max(bw, 0.6).toFixed(2);
+      var hD = ((base - 2) * depth[i]) / maxd;
+      parts.push('<rect class="depth" x="' + x + '" y="' + (base - hD).toFixed(2) +
+        '" width="' + w + '" height="' + Math.max(hD, depth[i] ? 0.6 : 0).toFixed(2) +
+        '" opacity="0.42"></rect>');
+      if (seen) {
+        var hS = ((base - 2) * seen[i]) / maxd;
+        parts.push('<rect class="seen" x="' + x + '" y="' + (base - hS).toFixed(2) +
+          '" width="' + w + '" height="' + Math.max(hS, 0).toFixed(2) +
+          '"><title>residue ' + (i + 1) + ": in " + depth[i] + " constructs, resolved in " +
+          seen[i] + "</title></rect>");
+      }
+    }
+    parts.push('<text class="covaxis" x="' + pad + '" y="' + (H - 3) + '">1</text>');
+    parts.push('<text class="covaxis" x="' + (W - pad) + '" y="' + (H - 3) +
+      '" text-anchor="end">' + n + "</text>");
+    svg.innerHTML = parts.join("");
+
+    var legend = '<span><i style="background:var(--accent);opacity:.42"></i>in the construct</span>';
+    if (seen) {
+      legend += '<span><i style="background:var(--mint)"></i>resolved in the density</span>' +
+        "<span>" + c.rarely_resolved_pct + "% of the seed is resolved in under " +
+        Math.round(c.rarely_cut * 100) + "% of the constructs that contained it.</span>";
+    } else {
+      legend += "<span>Density not measured for this family.</span>";
+    }
+    $("covLegend2").innerHTML = legend;
+  }
+
+  function renderDisorderRuns() {
+    var c = S.family.stats.coverage;
+    var runs = c.disorder_runs || [];
+    if (!c.seen) {
+      $("disorderRuns").innerHTML = "<p style='color:var(--mute);font-size:12.5px;margin:0'>" +
+        "Per-chain density was not available for this family.</p>";
+      return;
+    }
+    if (!runs.length) {
+      $("disorderRuns").innerHTML = "<p style='color:var(--mint);font-size:12.5px;margin:0'>" +
+        "No region of this protein is systematically unresolved. Every residue that made it " +
+        "into a construct was resolved in most of them.</p>";
+      return;
+    }
+    $("disorderRuns").innerHTML = table2(
+      ["Residues", "Length", "Resolved in"],
+      runs.map(function (r) {
+        return [r.start + "\u2013" + r.end, r.length + " aa",
+                Math.round(r.resolved_fraction * 100) + "% of the constructs containing them"];
+      }), [1]);
+  }
+
+  function renderSeedSequence() {
+    var f = S.family, c = f.stats.coverage;
+    var seq = f.seed_sequence || "";
+    if (!seq) { $("seedSeq").innerHTML = ""; return; }
+    var d = c.depth || [], se = c.seen;
+    var out = [];
+    for (var i = 0; i < seq.length; i++) {
+      if (i % 60 === 0) {
+        out.push('<br><span class="ruler">' + String(i + 1).padStart(5, " ") + " </span>");
+      }
+      var cls = "ok";
+      if (!d[i]) cls = "none";
+      else if (se && d[i] && se[i] / d[i] < c.rarely_cut) cls = "poor";
+      out.push('<i class="' + cls + '" title="' + (i + 1) + " " + seq[i] +
+        (d[i] ? ": in " + d[i] + " constructs" + (se ? ", resolved in " + se[i] : "") : "") +
+        '">' + seq[i] + "</i>");
+    }
+    $("seedSeq").innerHTML = out.join("").replace(/^<br>/, "");
+  }
+
+  var constructFilter = "all";
+
+  function renderConstructs() {
+    var cs = S.family.constructs || [];
+    var f = S.family;
+    var shown = cs.filter(function (c) {
+      if (constructFilter === "eng") return c.engineered;
+      if (constructFilter === "fus") return (c.fusions || []).length;
+      return true;
+    });
+    $("constructSub").textContent = commas(cs.length) + " distinct deposited sequences across " +
+      commas(S.members.length) + " entities" +
+      (f.stats.constructs_unreferenced ? "; " + f.stats.constructs_unreferenced +
+        " have no UniProt reference to diff against" : "");
+
+    if (!shown.length) {
+      $("constructTable").innerHTML = '<p class="empty">Nothing matches that filter.</p>';
+      return;
+    }
+
+    var rows = shown.map(function (c) {
+      var badges = [];
+      (c.tags || []).forEach(function (t) { badges.push('<span class="badge tag">' + esc(t) + "</span>"); });
+      (c.fusions || []).forEach(function (t) {
+        badges.push('<span class="badge fus">' + esc(t.split(" (")[0]) + "</span>");
+      });
+      (c.proteases || []).forEach(function (t) { badges.push('<span class="badge prot">' + esc(t) + "</span>"); });
+      if (c.mutation_count) {
+        badges.push('<span class="badge mut">' + c.mutation_count + " mut</span>");
+      }
+      var best = c.best_resolution ? Number(c.best_resolution).toFixed(2) : "\u2014";
+      return "<tr>" +
+        '<td class="n">' + commas(c.n_entities) + "</td>" +
+        '<td class="n">' + c.length + "</td>" +
+        '<td class="n">' + best + "</td>" +
+        '<td class="id">' + (c.best_pdb_id
+          ? '<a href="https://www.rcsb.org/structure/' + esc(c.best_pdb_id) +
+            '" target="_blank" rel="noopener noreferrer">' + esc(c.best_pdb_id) + "</a>"
+          : "\u2014") + "</td>" +
+        '<td class="n">' + esc(c.uniprot || "\u2014") + "</td>" +
+        "<td>" + badges.join("") + '<div class="cs">' + esc(c.summary) + "</div></td>" +
+        "</tr>";
+    }).join("");
+
+    $("constructTable").innerHTML =
+      '<div class="tablewrap"><table class="ctable"><thead><tr>' +
+      "<th>Entities</th><th>Length</th><th>Best (\u00c5)</th><th>Best entry</th>" +
+      "<th>Reference</th><th>What was made</th></tr></thead><tbody>" +
+      rows + "</tbody></table></div>";
+  }
+
+  function wireConstructFilters() {
+    var map = { cbAll: "all", cbEng: "eng", cbFus: "fus" };
+    Object.keys(map).forEach(function (id) {
+      var b = $(id);
+      if (!b) return;
+      b.addEventListener("click", function () {
+        constructFilter = map[id];
+        Object.keys(map).forEach(function (o) {
+          $(o).setAttribute("aria-pressed", o === id ? "true" : "false");
+        });
+        renderConstructs();
+      });
+    });
+  }
+
+  function renderDomains() {
+    var d = S.family.domains || { sources: [], domains: [] };
+    var n = S.family.seed_length || 1;
+    $("domainSub").textContent = d.domains.length
+      ? d.domains.length + " assignments from " + d.sources.join(", ") +
+        ", each seen on at least " + d.support + " chains"
+      : "no domain assignments met the support threshold";
+
+    if (!d.domains.length) {
+      $("domainRibbon").innerHTML = "<p style='color:var(--mute);font-size:12.5px;margin:0'>" +
+        "No domain was assigned consistently enough across this family's chains to draw." +
+        "</p>";
+      return;
+    }
+    var bySource = {};
+    d.domains.forEach(function (x) { (bySource[x.source] = bySource[x.source] || []).push(x); });
+
+    var html = '<div class="ribbon">';
+    Object.keys(bySource).sort().forEach(function (src) {
+      html += '<div><div class="tracklabel">' + esc(src) + '</div><div class="track">';
+      bySource[src].forEach(function (x) {
+        var left = (100 * (x.start - 1) / n), width = (100 * (x.end - x.start + 1) / n);
+        html += '<div class="dom ' + esc(src.toLowerCase()) + '" style="left:' +
+          left.toFixed(2) + "%;width:" + Math.max(width, 0.5).toFixed(2) + '%" title="' +
+          esc((x.name || x.id || "") + " \u00b7 " + x.start + "-" + x.end +
+              " \u00b7 " + x.n_chains + " chains") + '">' +
+          esc(x.name || x.id || "") + "</div>";
+      });
+      html += "</div></div>";
+    });
+    html += '<div class="axis"><span>1</span><span>' + n + "</span></div></div>";
+    $("domainRibbon").innerHTML = html;
+  }
+
+  function renderOrthologues() {
+    var rows = S.family.orthologues || [];
+    if (!rows.length) { $("orthoMatrix").innerHTML = ""; return; }
+    var body = rows.map(function (o) {
+      var res = o.best_resolution ? Number(o.best_resolution).toFixed(2) : "\u2014";
+      var cov = o.coverage_pct == null ? 0 : o.coverage_pct;
+      return "<tr>" +
+        '<td class="org">' + esc(o.organism) + "</td>" +
+        '<td class="n">' + commas(o.entries) + "</td>" +
+        '<td class="n">' + commas(o.entities) + "</td>" +
+        '<td class="n">' + res + "</td>" +
+        '<td class="n">' + commas(o.holo) + "</td>" +
+        '<td><div class="bartrack"><i class="bar" style="width:' + cov.toFixed(0) +
+          '%"></i></div></td>' +
+        '<td class="n">' + cov + "%</td>" +
+        '<td class="n">' + esc((o.accessions || []).join(" ")) + "</td>" +
+        "</tr>";
+    }).join("");
+    $("orthoMatrix").innerHTML = '<table class="omatrix"><thead><tr>' +
+      "<th>Organism</th><th>Entries</th><th>Entities</th><th>Best \u00c5</th><th>Holo</th>" +
+      "<th>Seed coverage</th><th></th><th>Accessions</th></tr></thead><tbody>" +
+      body + "</tbody></table>";
+  }
+
+  /* ==================================================================================
      11. Boot
      ================================================================================== */
   function paint(fam) {
@@ -799,6 +1026,12 @@
     renderStats();
     renderFilters();
     renderCoverage();
+    renderCoverage2();
+    renderDisorderRuns();
+    renderSeedSequence();
+    renderConstructs();
+    renderDomains();
+    renderOrthologues();
     renderKnownBlocks();
 
     recompute();
@@ -836,6 +1069,7 @@
     wireList();
     wireView();
     wireRail();
+    wireConstructFilters();
 
     $("cardClose").addEventListener("click", closeCard);
     $("scrim").addEventListener("click", closeCard);

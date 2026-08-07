@@ -2,7 +2,7 @@
 
 > **The whole family, filed: every PDB entry for a protein family, cross-referenced in ninety seconds.**
 
-![python](https://img.shields.io/badge/python-3.11-3776AB?logo=python&logoColor=white) ![flask](https://img.shields.io/badge/flask-3.0-000000?logo=flask&logoColor=white) ![phase](https://img.shields.io/badge/phase-1%20of%204-fcb900) ![licence](https://img.shields.io/badge/licence-MIT-467FF7) ![author](https://img.shields.io/badge/author-Marc%20C.%20Deller%2C%20D.Phil.-1C244B)
+![python](https://img.shields.io/badge/python-3.11-3776AB?logo=python&logoColor=white) ![flask](https://img.shields.io/badge/flask-3.0-000000?logo=flask&logoColor=white) ![phase](https://img.shields.io/badge/phase-2%20of%204-fcb900) ![licence](https://img.shields.io/badge/licence-MIT-467FF7) ![author](https://img.shields.io/badge/author-Marc%20C.%20Deller%2C%20D.Phil.-1C244B)
 
 <table>
 <tr>
@@ -34,7 +34,7 @@ Live at **[codswallop.mdeller.com](https://codswallop.mdeller.com)**.
 | 4 | **Coverage census** | Which residues has nobody ever seen? A family-wide map answering a construct-design question in one glance | 1 (constructs), 2 (density) |
 | 5 | **Interaction fingerprints** | PLIP run family-wide, so binding-site contacts are comparable across entries rather than one-off | 3 |
 
-## ✨ Features (phase 1, live)
+## ✨ Features (phases 1 and 2, live)
 
 - **Ask for anything.** A PDB ID, a PDB entity id, a UniProt accession, a gene name, a Pfam or InterPro accession, a raw sequence (FASTA or bare), or just what the protein is called. Anything genuinely ambiguous returns a disambiguation card rather than a guess: `4HHB` asks whether you meant the alpha or beta globin, `LYZ` asks which of twelve organisms.
 - **One definition of a family.** Whatever you type is resolved to a **seed sequence**, and membership is every PDB polymer entity above a percent-identity threshold to that seed. Every member therefore carries a real identity number to the same reference, so the threshold slider means something exact rather than "whatever the annotation happened to say".
@@ -204,15 +204,15 @@ Roadmap for CODSWALLOP, in dependency order: each phase is independently shippab
 
 ### Phase 2: sequence, construct and domain intelligence
 
-- [ ] **Fetch the UniProt canonical and every deposited SEQRES.** The input to everything else in this phase
-- [ ] **Family MSA with per-column conservation and a sequence logo.** MAFFT or parasail, rendered as an interactive alignment viewer
-- [ ] **Construct diff engine.** The flagship. Align every SEQRES to the canonical and classify: N- and C-terminal expression tags (His6/8/10, Strep-II, FLAG, HA, Myc, Avi), cleavage sites and scar residues (TEV, 3C/PreScission, thrombin, SUMO, enterokinase), fusion partners (MBP, GST, SUMO, Trx, T4 lysozyme, BRIL, rubredoxin, PGS, GFP), truncations and internal loop deletions, point mutations sub-classified as catalytic, thermostabilising, surface entropy reduction or disulphide engineering, and non-canonical residues including SeMet
-- [ ] **Replace the phase 1 fusion heuristic.** Currently a blunt length test: a construct 80 or more residues longer than its aligned region is called a fusion. It catches the real ones (7BM4_1 is 332 residues with 252 aligned) and cannot name the partner
-- [ ] **Construct table.** One row per unique construct with the entries that used it and their resolutions, answering "which construct crystallises best?" directly
-- [ ] **Domain and fold annotation per entity.** Pfam, InterPro, CATH, SCOP and Gene3D via SIFTS and InterPro, drawn as an architecture ribbon
-- [ ] **Density coverage census.** The harder question layered onto the same axis as phase 1's construct census: of the residues that *were* in a construct, which has nobody ever seen density for. The two are different questions and the UI must keep labelling them as such
-- [ ] **Cross-species orthologue matrix.** Which organisms have structures, at what coverage
-- [ ] **Bind it all to the shared selection state.** Selecting a construct dims every other node on the map
+- [x] **Fetch the UniProt canonical and every deposited SEQRES.** Plus UniProt active and binding sites, used only to *describe* a mutation ("at an annotated active site"), never to claim what it did
+- [ ] **Family MSA with per-column conservation and a sequence logo.** Not built: the construct diff needs only pairwise alignment to the reference, and that is what shipped. The MSA and logo remain outstanding
+- [x] **Construct diff engine.** The flagship, and it works: Align every SEQRES to the canonical and classify: N- and C-terminal expression tags (His6/8/10, Strep-II, FLAG, HA, Myc, Avi), cleavage sites and scar residues (TEV, 3C/PreScission, thrombin, SUMO, enterokinase), fusion partners (MBP, GST, SUMO, Trx, T4 lysozyme, BRIL, rubredoxin, PGS, GFP), truncations and internal loop deletions, point mutations sub-classified as catalytic, thermostabilising, surface entropy reduction or disulphide engineering, and non-canonical residues including SeMet
+- [x] **Replaced the phase 1 fusion heuristic**, which was wrong on every case it flagged for carbonic anhydrase II: all four were *Schistosoma* CA, a genuinely larger protein with a His6 tag, called a fusion only because it was measured against the human seed rather than its own reference
+- [x] **Construct table.** One row per unique construct, most-used first, with the entries that used it and their best resolution. On p53 the top row is residues 94-312 carrying M133L/V203A/Y220C at 1.24 Å, and R273H, R249S and R282W each get their best structure: "which construct crystallises best" answered directly
+- [x] **Domain and fold annotation.** CATH, SCOP2B and ECOD per chain from the RCSB instance features, aggregated to a consensus with median boundaries and a chain count, drawn as an architecture ribbon. A domain must appear on at least 2 chains (or 1 % of them) to be reported: without that the list filled with domains belonging to *other* proteins in the complexes, and p53 picked up "Green fluorescent protein" and "Annexin"
+- [x] **Density coverage census.** `UNOBSERVED_RESIDUE_XYZ` per chain, mapped through each member's own alignment offset onto seed coordinates, drawn as a second curve against the construct curve. "Resolved in no construct at all" turned out to be as useless a bar as the binary union (0 % for p53), so the reported figure is the *ratio*: residues resolved in under a quarter of the constructs that contained them. p53 reads 20.6 %, and names 361-393, 62-90 and 294-312; spike's 1152-1271 is resolved in 4 %; carbonic anhydrase II is 0.8 %
+- [x] **Cross-species orthologue matrix.** Organisms by entry count, with best resolution, holo count and the fraction of the seed each one's constructs cover
+- [ ] **Bind the construct table to the shared selection state.** The three new panels read the same family payload, but selecting a construct does not yet dim the other nodes on the map
 
 ### Phase 3: structure, chemistry and interactions
 

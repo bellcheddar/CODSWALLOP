@@ -31,39 +31,9 @@ SECTIONS = [
     {
         "id": "overview", "label": "Overview", "phase": 1,
     },
-    {
-        "id": "sequences", "label": "Sequences", "phase": 2, "known": "constructs",
-        "blurb": "The family alignment, and what every deposited sequence has in common.",
-        "bullets": [
-            "Family MSA with per-column conservation and a sequence logo",
-            "Every deposited SEQRES aligned against the UniProt canonical",
-            "Non-canonical residues and SeMet substitution, flagged per entity",
-        ],
-    },
-    {
-        "id": "constructs", "label": "Constructs", "phase": 2, "known": "constructs",
-        "blurb": "The flagship: what was actually <em>made</em>, versus what the gene says. "
-                 "This is what gets a crystal, and it is buried in mmCIF nobody reads.",
-        "bullets": [
-            "<b>Expression tags</b>: His6/8/10, Strep-II, FLAG, HA, Myc, Avi",
-            "<b>Cleavage sites and scar residues</b>: TEV, 3C/PreScission, thrombin, SUMO, enterokinase",
-            "<b>Fusion partners</b>: MBP, GST, SUMO, Trx, T4 lysozyme, BRIL, rubredoxin, PGS, GFP",
-            "<b>Truncations</b> and internal loop deletions",
-            "<b>Point mutations</b>, sub-classified: catalytic, thermostabilising, "
-            "surface entropy reduction, disulphide engineering",
-            "One row per unique construct with the entries that used it, answering "
-            "&ldquo;which construct crystallises best?&rdquo; directly",
-        ],
-    },
-    {
-        "id": "domains", "label": "Domains", "phase": 2, "known": "domains",
-        "blurb": "Domain and fold assignment per entity, drawn as an architecture ribbon.",
-        "bullets": [
-            "Pfam, InterPro, CATH, SCOP and Gene3D per entity via SIFTS and InterPro",
-            "Domain-architecture ribbon aligned to the family MSA",
-            "Cross-species orthologue matrix: which organisms have structures, at what coverage",
-        ],
-    },
+    {"id": "sequences", "label": "Sequences", "phase": 2, "live": True},
+    {"id": "constructs", "label": "Constructs", "phase": 2, "live": True},
+    {"id": "domains", "label": "Domains", "phase": 2, "live": True},
     {
         "id": "structures", "label": "Structures", "phase": 3, "known": "methods",
         "blurb": "See it, superpose it, and make the hero map mean what it says.",

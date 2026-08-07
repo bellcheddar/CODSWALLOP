@@ -83,3 +83,43 @@ def search(query: str, size: int = 12) -> list[dict]:
 def by_gene(gene: str, size: int = 12) -> list[dict]:
     """Candidates for a bare gene name, across organisms."""
     return search(f"gene:{gene}", size)
+
+
+_FEATURE_FIELDS = "ft_act_site,ft_binding,ft_signal,ft_transmem,ft_domain,ft_disulfid"
+
+
+def features(accession: str) -> dict:
+    """Positional annotations used to *describe* a construct difference.
+
+    Only ever used to say what a mutation sits on ("at an annotated active site"), never to
+    claim what it did. Whether a substitution actually inactivated the enzyme is a result
+    from an experiment this tool has not seen.
+    """
+    def fetch():
+        rec = http.get_json(config.UNIPROT_ENTRY_URL.format(accession=accession.upper()),
+                            params={"fields": _FEATURE_FIELDS})
+        if not rec:
+            return {}
+        out: dict[str, list] = {"active_site": [], "binding_site": [], "signal_peptide": [],
+                                "transmembrane": [], "domain": [], "disulphide": []}
+        key = {"Active site": "active_site", "Binding site": "binding_site",
+               "Signal": "signal_peptide", "Transmembrane": "transmembrane",
+               "Domain": "domain", "Disulfide bond": "disulphide"}
+        for f in rec.get("features") or []:
+            k = key.get(f.get("type"))
+            if not k:
+                continue
+            loc = f.get("location") or {}
+            beg = (loc.get("start") or {}).get("value")
+            end = (loc.get("end") or {}).get("value")
+            if beg is None or end is None:
+                continue
+            if k in ("active_site", "binding_site", "disulphide"):
+                # Single positions: the classifier tests membership, not overlap.
+                out[k].extend(range(int(beg), int(end) + 1))
+            else:
+                out[k].append({"start": int(beg), "end": int(end),
+                               "description": f.get("description") or ""})
+        return out
+
+    return db.cached(("uniprot_features", accession.upper()), fetch) or {}

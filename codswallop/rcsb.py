@@ -28,7 +28,7 @@ _PAGE = 1000
 # consumes it fails silently: adding the alignment spans without bumping this left the
 # "residues in no construct" figure reading 100 % and the fusion count reading 0, both of
 # which look like plausible answers rather than missing inputs.
-PARSE_VERSION = 3
+PARSE_VERSION = 4
 
 
 def _paged_search(query: dict, return_type: str, limit: int, verbose: bool = False) -> tuple[list[dict], int]:
@@ -314,11 +314,18 @@ def parse_entity(raw: dict) -> dict:
     # UniProt, and only UniProt: the same block also carries GenBank/EMBL/NORINE accessions
     # for some entities, and treating one of those as the reference would quietly break the
     # cross-reference on exactly the entries where it matters.
-    uniprot = None
-    for ref in ids.get("reference_sequence_identifiers") or []:
-        if (ref or {}).get("database_name") == "UniProt":
-            uniprot = ref.get("database_accession")
-            break
+    #
+    # ALL of them, not just the first. A chimera is cross-referenced to every protein it is
+    # made of, and which one comes first is not meaningful: 2RH1 (the beta-2 adrenergic
+    # receptor-T4 lysozyme fusion) lists T4 lysozyme first, so taking the head of the list
+    # made the construct diff run backwards, treating the 164-residue fusion partner as the
+    # canonical reference and the entire receptor as a pair of unexplained overhangs.
+    uniprot_ids = [
+        ref.get("database_accession")
+        for ref in (ids.get("reference_sequence_identifiers") or [])
+        if (ref or {}).get("database_name") == "UniProt" and ref.get("database_accession")
+    ]
+    uniprot = uniprot_ids[0] if uniprot_ids else None
 
     annotations = raw.get("rcsb_polymer_entity_annotation") or []
     pfam = [{"id": a["annotation_id"], "name": a.get("name")}
@@ -367,6 +374,7 @@ def parse_entity(raw: dict) -> dict:
             "taxonomy_id": first(raw.get("rcsb_entity_source_organism"), "ncbi_taxonomy_id"),
             "host_organism": first(raw.get("rcsb_entity_host_organism"), "ncbi_scientific_name"),
             "uniprot": uniprot,
+            "uniprot_ids": uniprot_ids,
             "pfam": pfam,
             "interpro": interpro,
         },

@@ -133,8 +133,70 @@
       </div>
     </section>
 
+    {# ============================== SEQUENCES (phase 2) =========================== #}
+    <section id="sec-sequences" class="section" role="tabpanel" hidden>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Coverage and disorder</h2>
+          <span class="sub">Two different questions on one axis: what was in the construct,
+            and what was actually resolved</span>
+        </div>
+        <div class="covwrap">
+          <svg class="covbar tall" id="coverage2" role="img"
+               aria-label="Per-residue construct coverage and resolved density"></svg>
+          <div class="covlegend" id="covLegend2"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Rarely resolved regions</h2>
+          <span class="sub">Present in the crystal, absent from the density</span>
+        </div>
+        <div class="panel-body"><div id="disorderRuns"></div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h2>Seed sequence</h2>
+          <span class="sub">Coloured by how often each residue is resolved</span></div>
+        <div class="panel-body"><div id="seedSeq" class="seqmap"></div></div>
+      </div>
+    </section>
+
+    {# ============================== CONSTRUCTS (phase 2) ========================== #}
+    <section id="sec-constructs" class="section" role="tabpanel" hidden>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>What people actually made</h2>
+          <span class="sub" id="constructSub"></span>
+          <div class="seg" role="group" aria-label="Filter constructs">
+            <button type="button" id="cbAll" aria-pressed="true">All</button>
+            <button type="button" id="cbEng" aria-pressed="false">Engineered</button>
+            <button type="button" id="cbFus" aria-pressed="false">Fusions</button>
+          </div>
+        </div>
+        <div class="panel-body"><div id="constructTable"></div></div>
+      </div>
+    </section>
+
+    {# ================================ DOMAINS (phase 2) =========================== #}
+    <section id="sec-domains" class="section" role="tabpanel" hidden>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Domain architecture</h2>
+          <span class="sub" id="domainSub"></span>
+        </div>
+        <div class="panel-body"><div id="domainRibbon"></div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Orthologues</h2>
+          <span class="sub">Which organisms have structures, at what coverage and quality</span>
+        </div>
+        <div class="panel-body"><div id="orthoMatrix"></div></div>
+      </div>
+    </section>
+
     {# ============================ PHASES STILL TO LAND ============================= #}
-    {% for s in sections if s.phase > 1 %}
+    {% for s in sections if s.phase > 1 and not s.live %}
     <section id="sec-{{ s.id }}" class="section" role="tabpanel" hidden>
       <div class="panel">
         <div class="placeholder">

@@ -83,7 +83,8 @@ CREATE TABLE IF NOT EXISTS entity (
     organism       TEXT,
     taxonomy_id    INTEGER,
     host_organism  TEXT,
-    uniprot        TEXT,
+    uniprot        TEXT,                   -- primary (first-listed) UniProt accession
+    uniprot_ids    TEXT,                   -- JSON list: a chimera has more than one
     identity       REAL,                   -- % identity to the family seed
     aligned_length INTEGER,
     query_beg      INTEGER,                -- span of the SEED this member aligns to; the
@@ -124,6 +125,7 @@ def connect() -> sqlite3.Connection:
 _MIGRATIONS: list[tuple[str, str, str]] = [
     ("entity", "query_beg", "INTEGER"),
     ("entity", "query_end", "INTEGER"),
+    ("entity", "uniprot_ids", "TEXT"),
 ]
 
 
@@ -269,10 +271,11 @@ def save_family(fam: dict, entries: list[dict], entities: list[dict]) -> None:
         conn.executemany(
             "INSERT INTO entity(slug, entity_id, pdb_id, description, chains, seq_length, "
             "  sequence, organism, taxonomy_id, host_organism, uniprot, identity, "
-            "  aligned_length, query_beg, query_end, is_fusion, is_orthologue, pfam, interpro) "
+            "  aligned_length, query_beg, query_end, is_fusion, is_orthologue, pfam, interpro, uniprot_ids) "
             "VALUES (:slug, :entity_id, :pdb_id, :description, :chains, :seq_length, "
             "  :sequence, :organism, :taxonomy_id, :host_organism, :uniprot, :identity, "
-            "  :aligned_length, :query_beg, :query_end, :is_fusion, :is_orthologue, :pfam, :interpro)",
+            "  :aligned_length, :query_beg, :query_end, :is_fusion, :is_orthologue, :pfam, :interpro, "
+            "  :uniprot_ids)",
             [
                 {
                     "slug": slug, "entity_id": t["entity_id"], "pdb_id": t["pdb_id"],
@@ -281,6 +284,7 @@ def save_family(fam: dict, entries: list[dict], entities: list[dict]) -> None:
                     "seq_length": t.get("seq_length"), "sequence": t.get("sequence"),
                     "organism": t.get("organism"), "taxonomy_id": t.get("taxonomy_id"),
                     "host_organism": t.get("host_organism"), "uniprot": t.get("uniprot"),
+                    "uniprot_ids": json.dumps(t.get("uniprot_ids") or []),
                     "identity": t.get("identity"), "aligned_length": t.get("aligned_length"),
                     "query_beg": t.get("query_beg"), "query_end": t.get("query_end"),
                     "is_fusion": 1 if t.get("is_fusion") else 0,
@@ -314,6 +318,7 @@ def load_family(slug: str) -> Optional[dict]:
         t = dict(r)
         t.pop("slug", None)
         t["chains"] = json.loads(t["chains"] or "[]")
+        t["uniprot_ids"] = json.loads(t["uniprot_ids"] or "[]")
         t["pfam"] = json.loads(t["pfam"] or "[]")
         t["interpro"] = json.loads(t["interpro"] or "[]")
         t["is_fusion"] = bool(t["is_fusion"])
