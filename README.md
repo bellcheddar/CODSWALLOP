@@ -200,7 +200,7 @@ Roadmap for CODSWALLOP, in dependency order: each phase is independently shippab
 - [x] **Full table view with CSV, JSON and BibTeX export.** BibTeX deduplicated to one record per paper with the PDB IDs collected in a note
 - [x] **Payload deduplication.** Sequences, citations, chemical components and domain annotations moved to family-level lookups: 6.3 MB to 1.8 MB, ~240 kB gzipped
 - [x] **Mobile responsive and `prefers-reduced-motion` respected**, at this phase rather than retrofitted
-- [ ] **Deploy to codswallop.mdeller.com** and add the entry to `mdeller-landing/apps.json`, at the top, with a beacon pointing at `/api/stats`
+- [x] **Deployed to codswallop.mdeller.com** and listed at the top of `mdeller-landing/apps.json`. The beacon is `/api/stats`, and it needed the footer's "filed so far" line to exist first: the beacon was declared before anything on any page requested it, which would have left the launcher's hit count reading zero forever with nothing to show why. A static asset would have been the easier beacon and a worse one, since `/static/` is served `immutable` and a returning reader never re-requests it
 
 ### Phase 2: sequence, construct and domain intelligence
 
