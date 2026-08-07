@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% block title %}{{ display_name }} &mdash; CODSWALLOP{% endblock %}
+{% block description %}Every PDB entry for {{ display_name }}: constructs, ligands, methods, resolutions and crystallisation, cross-referenced in one place.{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ asset('vendor/tabulator.min.css') }}">
+{% endblock %}
+
+{% block body %}
+<div class="drawer-open">
+
+  {# ---- the divider rail. Every phase's section is here from day one, so navigation ----
+     ---- never needs rebuilding as the later phases ship.                            ---#}
+  <nav class="rail" aria-label="Family sections">
+    <a class="home" href="{{ url_for('home') }}"><span class="plate">Codswallop</span></a>
+    {% for s in sections %}
+    <button class="divider" type="button" role="tab"
+            data-section="{{ s.id }}" data-phase="{{ s.phase }}"
+            aria-selected="{{ 'true' if loop.first else 'false' }}"
+            aria-controls="sec-{{ s.id }}"
+            {% if s.phase > 1 %}title="Lands in phase {{ s.phase }}"{% endif %}>
+      <span class="label">{{ s.label }}</span>
+      <span class="pip" aria-label="Phase {{ s.phase }}">P{{ s.phase }}</span>
+    </button>
+    {% endfor %}
+    <p class="railnote">
+      The pip on each divider is the build phase it lands in. Phase&nbsp;1 sections are
+      live; the rest name what will be filed there.
+    </p>
+  </nav>
+
+  <div class="contents">
+
+    {# ---- family header ------------------------------------------------------------ #}
+    <header class="famhead">
+      <div class="stamp" aria-hidden="true">
+        <span class="word">FILED</span>
+        <span class="count" id="stampCount">&mdash;</span>
+      </div>
+      <h1 id="famName">{{ display_name }}</h1>
+      <div class="meta" id="famMeta"></div>
+      <p class="note" id="famNote"></p>
+    </header>
+
+    {# ---- stat strip ---------------------------------------------------------------- #}
+    <div class="statstrip" id="statStrip"></div>
+
+    {# ================================ OVERVIEW (phase 1) ========================== #}
+    <section id="sec-overview" class="section" role="tabpanel" aria-labelledby="tab-overview">
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>The family</h2>
+          <span class="sub" id="heroSub"></span>
+          <div class="seg" role="group" aria-label="Map or table">
+            <button type="button" id="btnMap" aria-pressed="true">Map</button>
+            <button type="button" id="btnTable" aria-pressed="false">Table</button>
+          </div>
+        </div>
+
+        {# ---- family definition controls ------------------------------------------- #}
+        <div class="filters" id="filters">
+          <div class="fgroup slider">
+            <span class="flabel">Identity</span>
+            <input type="range" id="identity" min="30" max="100" step="1" value="30"
+                   aria-label="Minimum percent identity to the seed">
+            <span class="val" id="identityVal">&ge;30%</span>
+          </div>
+
+          <div class="fgroup" id="methodChips">
+            <span class="flabel">Method</span>
+          </div>
+
+          <div class="fgroup">
+            <span class="flabel">Include</span>
+            <label class="toggle"><input type="checkbox" id="optOrth" checked>
+              orthologues <span class="n" id="nOrth"></span></label>
+            <label class="toggle"><input type="checkbox" id="optFusion" checked>
+              chimeras &amp; fusions <span class="n" id="nFusion"></span></label>
+            <label class="toggle"><input type="checkbox" id="optHolo">
+              ligand-bound only</label>
+          </div>
+
+          <span class="filtersum" id="filterSum"></span>
+        </div>
+
+        {# ---- hero: constellation with the entry list permanently beside it -------- #}
+        <div class="hero" id="hero">
+          <div class="field" id="field">
+            <svg id="constellation" role="img"
+                 aria-label="Similarity map of every structure in the family"></svg>
+            <p class="fieldnote">
+              <b>Placeholder layout.</b> Outward is decreasing identity to the seed, ranked;
+              sector is source organism; size is 1/resolution; colour is method; an amber halo
+              means ligand-bound. Phase&nbsp;3 replaces the positions with a real structural
+              embedding from the pairwise TM-score matrix.
+            </p>
+          </div>
+
+          <div class="entrylist">
+            <div class="lhead">
+              <span>Entries</span>
+              <span id="listCount" class="num"></span>
+            </div>
+            <div class="rows" id="entryRows"></div>
+          </div>
+        </div>
+
+        {# ---- full table ------------------------------------------------------------ #}
+        <div id="tableWrap" hidden>
+          <div class="tablebar">
+            <button class="btn ghost" type="button" id="expCsv">Export CSV</button>
+            <button class="btn ghost" type="button" id="expJson">Export JSON</button>
+            <button class="btn ghost" type="button" id="expBib">Export BibTeX</button>
+            <span class="grow"></span>
+            <button class="btn ghost" type="button" id="colToggle">Columns</button>
+          </div>
+          <div id="entryTable"></div>
+        </div>
+      </div>
+
+      {# ---- coverage census --------------------------------------------------------- #}
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Construct coverage</h2>
+          <span class="sub">How many of the family's constructs contain each residue of the seed</span>
+        </div>
+        <div class="covwrap">
+          <svg class="covbar" id="coverage" role="img"
+               aria-label="Per-residue construct coverage across the family"></svg>
+          <div class="covlegend" id="covLegend"></div>
+        </div>
+      </div>
+    </section>
+
+    {# ============================ PHASES STILL TO LAND ============================= #}
+    {% for s in sections if s.phase > 1 %}
+    <section id="sec-{{ s.id }}" class="section" role="tabpanel" hidden>
+      <div class="panel">
+        <div class="placeholder">
+          <span class="phase">Phase {{ s.phase }}</span>
+          <h2>{{ s.label }}</h2>
+          {# |safe like the bullets below: these strings are author-written constants in
+             webapp.py's SECTIONS, not anything a reader can reach. Without it the markup
+             prints literally, which is how the Crystals blurb came to read
+             "&lt;code&gt;_exptl_crystal_grow&lt;/code&gt;" on the page. #}
+          <p>{{ s.blurb|safe }}</p>
+          <ul>
+            {% for b in s.bullets %}<li>{{ b|safe }}</li>{% endfor %}
+          </ul>
+
+          {% if s.known %}
+          <div class="alreadyknow">
+            <h3>What phase 1 can already tell you</h3>
+            <div data-known="{{ s.known }}"></div>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </section>
+    {% endfor %}
+
+    {# ---- the filing state, shown while a cold family is assembled ----------------- #}
+    <div class="filing" id="filing" {% if family %}hidden{% endif %}>
+      <span class="plate">Filing</span>
+      <p id="filingWhat">Assembling the family from the RCSB, UniProt and InterPro.</p>
+      <p class="step" id="filingStep">resolving&hellip;</p>
+      <div class="bar"><i></i></div>
+    </div>
+  </div>
+</div>
+
+{# ---- the index card, flipped out from any entry anywhere ------------------------- #}
+<div class="scrim" id="scrim"></div>
+<aside class="indexcard" id="indexCard" role="dialog" aria-modal="true"
+       aria-labelledby="cardTitle" hidden>
+  <div class="chead">
+    <div style="min-width:0">
+      <h2 id="cardTitle"></h2>
+      <div class="t" id="cardTitleText"></div>
+    </div>
+    <button class="close" type="button" id="cardClose" aria-label="Close (Escape)">&times;</button>
+  </div>
+  <div class="cbody" id="cardBody"></div>
+</aside>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ asset('vendor/tabulator.min.js') }}"></script>
+<script>
+  window.CODSWALLOP = {
+    slug: {{ slug|tojson }},
+    query: {{ query|tojson }},
+    apiUrl: {{ url_for('api_family', slug=slug)|tojson }},
+    // Present when the family was already cached: the page paints complete with no fetch.
+    family: {{ family|tojson if family else 'null' }}
+  };
+</script>
+<script src="{{ asset('map.js') }}"></script>
+<script src="{{ asset('family.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Which one? &mdash; CODSWALLOP{% endblock %}
+
+{% block body %}
+<div class="centred">
+  <div class="cardstack">
+    <span class="plate">Codswallop</span>
+    <h1 style="margin-top:18px">{{ prompt }}</h1>
+    <p>
+      You asked for <code>{{ query }}</code>. CODSWALLOP will not guess which one you meant,
+      because the whole family hangs off the answer.
+    </p>
+
+    <div class="candidates">
+      {% for c in candidates %}
+      <a class="cand" href="{{ url_for('lookup', q=c.pick) }}">
+        <div class="label">{{ c.label }}</div>
+        {% if c.sublabel %}<div class="sublabel">{{ c.sublabel }}</div>{% endif %}
+        <div class="meta">{{ c.meta }}</div>
+      </a>
+      {% endfor %}
+    </div>
+
+    <p style="margin-top:20px">
+      <a href="{{ url_for('home') }}">&larr; Ask for something else</a>
+    </p>
+  </div>
+</div>
+{% endblock %}

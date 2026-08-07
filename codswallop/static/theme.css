@@ -1,0 +1,703 @@
+/* CODSWALLOP -- lamp-lit archive.
+ *
+ * The one rule that holds this theme together: anything PHYSICAL is brass (drawer front,
+ * dividers, plate, pins, stamps), and all DATA is cool (blue, cyan, violet, mint). Do not
+ * decorate a data panel with brass, and do not dress the drawer in blue. Every colour used
+ * anywhere in this file is declared in the token block below; nothing is invented inline.
+ *
+ * Dark is the default and the design's home. The light variant is the same room with the
+ * blinds open: the physical things stay warm, the data stays cool, and only the surfaces
+ * and the type hierarchy invert.
+ */
+
+/* ====================================================================================
+   1. Tokens
+   ==================================================================================== */
+:root {
+  /* -- dark: the specified palette -------------------------------------------------- */
+  --bg: #131924;            /* Room */
+  --bg-2: #182031;          /* Drawer interior, rail */
+  --sky: #0F1522;           /* Constellation field */
+  --surface: #1F2938;       /* Cards, panels */
+  --surface-2: #273346;     /* Raised, panel headers */
+  --line: #2E3A4E;          /* Borders */
+  --text: #E4EAF6;
+  --dim: #93A2BC;
+  --mute: #65748E;
+  --brass: #C9A063;         /* Anything physical */
+  --brass-dk: #8A6D40;
+  --accent: #5B8CFF;        /* Brand blue, lifted for dark contrast */
+  --cyan: #4FD1E3;          /* X-ray */
+  --amber: #F5B93F;         /* cryo-EM */
+  --violet: #9B7BE8;        /* NMR */
+  --oxide: #E0685C;         /* FILED stamp, warnings, disorder flags */
+  --mint: #43C79F;          /* Pass states */
+  /* Ink for text sitting ON brass (the plate, the primary button). Brass is light in the
+     dark theme and dark in the light one, so the ink has to flip with it: a fixed near-black
+     turns the plate muddy and unreadable the moment the archive gets its blinds opened. */
+  --on-brass: #1A1408;
+
+  /* -- structural ------------------------------------------------------------------- */
+  --display: Archivo, ui-sans-serif, system-ui, sans-serif;
+  --sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --radius: 10px;
+  --shadow: 0 1px 2px rgba(0,0,0,.34), 0 10px 34px rgba(0,0,0,.34);
+  --shadow-lift: 0 2px 6px rgba(0,0,0,.4), 0 22px 60px rgba(0,0,0,.46);
+  --drawer-ease: cubic-bezier(.62,.02,.26,1);
+  --drawer-time: 680ms;
+  --rail-w: 178px;
+}
+
+/* -- light: the same roles, blinds open. Physical stays warm, data stays cool.
+ * Declared twice, deliberately: once for the explicit toggle and once for the media query.
+ * The toggle stamps data-theme on the root and must win in BOTH directions, so the media
+ * query is scoped with :not([data-theme="dark"]) rather than left to cascade order. Keep
+ * the two value lists in sync. */
+:root[data-theme="light"] {
+  --bg: #EDE7DC;            /* Room: warm paper, not white -- it is still an archive */
+  --bg-2: #E4DCCC;          /* Drawer interior, rail */
+  --sky: #F4F1E9;           /* Constellation field */
+  --surface: #FCFAF5;       /* Cards, panels */
+  --surface-2: #F1ECE0;     /* Raised, panel headers */
+  --line: #D3C7B0;
+  --text: #1D2430;
+  --dim: #55627A;
+  --mute: #7C8AA3;
+  --brass: #8A6D40;         /* darkened so brass reads on paper */
+  --brass-dk: #6B5330;
+  --accent: #1F5FD8;
+  --cyan: #0F8FA6;
+  --amber: #B47908;
+  --violet: #6B47C4;
+  --oxide: #B8382C;
+  --mint: #1B8763;
+  --on-brass: #FDF8EE;
+  --shadow: 0 1px 2px rgba(60,45,20,.10), 0 10px 30px rgba(60,45,20,.10);
+  --shadow-lift: 0 2px 6px rgba(60,45,20,.14), 0 22px 60px rgba(60,45,20,.16);
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #EDE7DC; --bg-2: #E4DCCC; --sky: #F4F1E9; --surface: #FCFAF5;
+    --surface-2: #F1ECE0; --line: #D3C7B0; --text: #1D2430; --dim: #55627A;
+    --mute: #7C8AA3; --brass: #8A6D40; --brass-dk: #6B5330; --accent: #1F5FD8;
+    --cyan: #0F8FA6; --amber: #B47908; --violet: #6B47C4; --oxide: #B8382C; --mint: #1B8763;
+    --on-brass: #FDF8EE;
+    --shadow: 0 1px 2px rgba(60,45,20,.10), 0 10px 30px rgba(60,45,20,.10);
+    --shadow-lift: 0 2px 6px rgba(60,45,20,.14), 0 22px 60px rgba(60,45,20,.16);
+  }
+}
+
+/* ====================================================================================
+   2. Base
+   ==================================================================================== */
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;    /* the page body must never scroll horizontally */
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1, h2, h3 { font-family: var(--display); font-weight: 600; margin: 0; letter-spacing: -.01em; }
+code, .mono, .pdbid { font-family: var(--mono); font-variant-ligatures: none; }
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+/* Data is data: every PDB ID, resolution, space group and condition is monospace. */
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+.wrap { max-width: 1500px; margin: 0 auto; padding: 0 22px; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* ====================================================================================
+   3. The drawer front (landing)
+   ==================================================================================== */
+.room { min-height: 100vh; display: flex; flex-direction: column; }
+
+.drawer-front {
+  flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px 22px;
+}
+.drawer-face {
+  width: min(620px, 100%);
+  background: linear-gradient(178deg, var(--surface-2), var(--bg-2));
+  border: 1px solid var(--line);
+  border-top-color: var(--brass-dk);
+  border-radius: 14px;
+  box-shadow: var(--shadow-lift);
+  padding: 40px 38px 34px;
+  position: relative;
+}
+/* The drawer pull: physical, therefore brass. */
+.drawer-face::after {
+  content: ""; position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%);
+  width: 92px; height: 7px; border-radius: 4px;
+  background: linear-gradient(180deg, var(--brass), var(--brass-dk));
+  opacity: .55;
+}
+.plate {
+  display: inline-block; padding: 7px 16px 8px; border-radius: 3px;
+  background: linear-gradient(168deg, var(--brass), var(--brass-dk));
+  color: var(--on-brass);
+  font-family: var(--display); font-weight: 700; font-size: 13px;
+  letter-spacing: .30em; text-transform: uppercase;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.34), 0 1px 3px rgba(0,0,0,.4);
+}
+.drawer-face h1 {
+  font-size: clamp(30px, 6vw, 46px); margin: 20px 0 6px; color: var(--text);
+}
+.expand {
+  font-size: 12.5px; color: var(--dim); line-height: 1.7; margin: 0 0 22px;
+  max-width: 46ch;
+}
+.expand b { color: var(--brass); font-weight: 600; }
+.lede { color: var(--dim); font-size: 14px; margin: 0 0 24px; max-width: 52ch; }
+
+.searchrow { display: flex; gap: 9px; }
+.searchrow input {
+  flex: 1; min-width: 0;
+  background: var(--sky); color: var(--text);
+  border: 1px solid var(--line); border-radius: 8px;
+  padding: 13px 15px; font-family: var(--mono); font-size: 14px;
+}
+.searchrow input::placeholder { color: var(--mute); font-family: var(--sans); }
+.searchrow input:focus { border-color: var(--accent); outline: none; }
+.btn {
+  background: linear-gradient(168deg, var(--brass), var(--brass-dk));
+  color: var(--on-brass); border: none; border-radius: 8px; padding: 13px 22px;
+  font-weight: 650; letter-spacing: .02em;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.3);
+}
+.btn:hover { filter: brightness(1.08); }
+.btn:active { filter: brightness(.94); }
+.btn.ghost {
+  background: transparent; color: var(--dim); border: 1px solid var(--line);
+  box-shadow: none; font-weight: 500; padding: 8px 14px;
+}
+.btn.ghost:hover { color: var(--text); border-color: var(--brass-dk); filter: none; }
+
+.hints { margin: 18px 0 0; font-size: 12px; color: var(--mute); line-height: 2.1; }
+.hints .eg {
+  font-family: var(--mono); background: var(--sky); border: 1px solid var(--line);
+  border-radius: 5px; padding: 3px 8px; margin-right: 6px; color: var(--dim); cursor: pointer;
+}
+.hints .eg:hover { color: var(--text); border-color: var(--brass-dk); }
+
+.recent { margin-top: 26px; border-top: 1px solid var(--line); padding-top: 16px; }
+.recent h2 { font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: var(--mute); }
+.recent ul { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 7px; }
+.recent a {
+  display: inline-block; padding: 5px 10px; border: 1px solid var(--line); border-radius: 6px;
+  font-size: 12px; color: var(--dim); background: var(--sky);
+}
+.recent a:hover { color: var(--text); border-color: var(--brass-dk); text-decoration: none; }
+.recent a b { color: var(--brass); font-weight: 600; font-family: var(--mono); }
+
+/* ====================================================================================
+   4. The open drawer: rail + contents
+   ==================================================================================== */
+.drawer-open { display: grid; grid-template-columns: var(--rail-w) minmax(0, 1fr); flex: 1; }
+
+/* The drawer slides open once, on arrival. */
+.drawer-open > * { animation: slide-open var(--drawer-time) var(--drawer-ease) both; }
+.drawer-open > .contents { animation-delay: 90ms; }
+@keyframes slide-open {
+  from { opacity: 0; transform: translateY(-14px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* -- the divider rail --------------------------------------------------------------- */
+.rail {
+  background: var(--bg-2); border-right: 1px solid var(--line);
+  padding: 16px 0 40px; position: sticky; top: 0; align-self: start; max-height: 100vh;
+  overflow-y: auto;
+}
+.rail .home {
+  display: block; padding: 0 16px 14px; margin-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.rail .home .plate { font-size: 9px; letter-spacing: .22em; padding: 5px 10px 6px; }
+.divider {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  background: none; border: 0; border-left: 3px solid transparent;
+  padding: 9px 14px 9px 13px; text-align: left; color: var(--dim); font-size: 13px;
+  transition: transform 160ms var(--drawer-ease), color 160ms, border-color 160ms;
+}
+/* A tabbed divider lifts out of the drawer when you touch it. */
+.divider:hover { color: var(--text); transform: translateX(4px); }
+.divider[aria-selected="true"] {
+  color: var(--text); background: var(--surface);
+  border-left-color: var(--brass); font-weight: 600; transform: translateX(4px);
+}
+.divider:disabled { cursor: default; opacity: .72; }
+.divider:disabled:hover { transform: none; color: var(--dim); }
+.divider .label { flex: 1; }
+/* The pip is the build phase, not decoration. */
+.pip {
+  font-family: var(--mono); font-size: 9.5px; line-height: 1; padding: 3px 5px;
+  border-radius: 3px; border: 1px solid var(--line); color: var(--mute); flex: 0 0 auto;
+}
+.divider[data-phase="1"] .pip { color: var(--brass); border-color: var(--brass-dk); }
+.rail .railnote {
+  padding: 14px 16px 0; margin-top: 10px; border-top: 1px solid var(--line);
+  font-size: 10.5px; color: var(--mute); line-height: 1.6;
+}
+
+/* -- contents ----------------------------------------------------------------------- */
+.contents { padding: 20px 22px 60px; min-width: 0; }
+
+/* -- family header ------------------------------------------------------------------ */
+.famhead { position: relative; padding-right: 132px; margin-bottom: 16px; }
+.famhead h1 { font-size: clamp(21px, 3vw, 30px); line-height: 1.15; }
+.famhead .meta {
+  margin-top: 8px; color: var(--dim); font-size: 12.5px;
+  display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center;
+}
+.famhead .meta .tag {
+  font-family: var(--mono); font-size: 11px; padding: 2px 7px; border-radius: 4px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--dim);
+}
+.famhead .note {
+  margin-top: 9px; font-size: 12px; color: var(--mute); max-width: 92ch; line-height: 1.6;
+}
+
+/* The rubber stamp. Physical, so brass-adjacent: oxide ink on a slight angle. */
+.stamp {
+  position: absolute; top: -2px; right: 0; transform: rotate(-7deg);
+  border: 2.5px solid var(--oxide); color: var(--oxide); border-radius: 5px;
+  padding: 5px 11px 6px; text-align: center; opacity: .82; pointer-events: none;
+}
+.stamp .word {
+  font-family: var(--display); font-weight: 700; font-size: 17px; letter-spacing: .2em;
+  line-height: 1; display: block;
+}
+.stamp .count {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .06em; display: block;
+  margin-top: 3px; opacity: .92;
+}
+
+/* -- stat strip --------------------------------------------------------------------- */
+.statstrip {
+  display: grid; gap: 8px; margin-bottom: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+}
+.stat {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 9px 11px 10px;
+}
+.stat .v {
+  font-family: var(--mono); font-size: 19px; font-weight: 600; line-height: 1.15;
+  font-variant-numeric: tabular-nums; color: var(--text);
+}
+.stat .k {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .09em; color: var(--mute);
+  margin-top: 3px;
+}
+.stat .v small { font-size: 11px; color: var(--dim); font-weight: 400; }
+/* The coverage figure is deliberately flagged. */
+.stat.flag { border-color: color-mix(in srgb, var(--oxide) 46%, var(--line)); }
+.stat.flag .v { color: var(--oxide); }
+.stat.pending .v { color: var(--mute); }
+
+/* -- panels ------------------------------------------------------------------------- */
+.panel {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  margin-bottom: 16px; overflow: hidden;
+}
+.panel-head {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 10px 13px; background: var(--surface-2); border-bottom: 1px solid var(--line);
+}
+.panel-head h2 { font-size: 13px; letter-spacing: .02em; flex: 0 0 auto; }
+.panel-head .sub { font-size: 11.5px; color: var(--mute); flex: 1; min-width: 120px; }
+.panel-body { padding: 13px; }
+
+/* segmented control */
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.seg button {
+  background: var(--surface); border: 0; padding: 5px 13px; font-size: 12px; color: var(--dim);
+}
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--brass); color: var(--on-brass); font-weight: 600; }
+
+/* ====================================================================================
+   5. Filters
+   ==================================================================================== */
+.filters {
+  display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center;
+  padding: 11px 13px; border-bottom: 1px solid var(--line); background: var(--surface);
+}
+.fgroup { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.fgroup > .flabel {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .09em; color: var(--mute);
+}
+.chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  border: 1px solid var(--line); background: var(--sky); color: var(--dim);
+  border-radius: 20px; padding: 3px 11px; font-size: 11.5px;
+}
+.chip:hover { color: var(--text); }
+.chip[aria-pressed="true"] { border-color: currentColor; color: var(--text); background: var(--surface-2); }
+.chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--mute); flex: 0 0 auto; }
+.chip .n { font-family: var(--mono); font-size: 10.5px; color: var(--mute); }
+.chip[aria-pressed="true"] .n { color: var(--dim); }
+/* Method colours: X-ray cyan, cryo-EM amber, NMR violet. Data, therefore cool. */
+.chip[data-method="X-ray"]    .dot { background: var(--cyan); }
+.chip[data-method="EM"]       .dot { background: var(--amber); }
+.chip[data-method="NMR"]      .dot { background: var(--violet); }
+.chip[data-method="Neutron"]  .dot { background: var(--mint); }
+.chip[data-method="Other"]    .dot { background: var(--mute); }
+
+.slider { display: flex; align-items: center; gap: 9px; }
+.slider input[type="range"] { width: 132px; accent-color: var(--brass); }
+.slider .val {
+  font-family: var(--mono); font-size: 12px; color: var(--text); min-width: 44px;
+  font-variant-numeric: tabular-nums;
+}
+.toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--dim); cursor: pointer; }
+.toggle input { accent-color: var(--brass); }
+.toggle:hover { color: var(--text); }
+
+.filtersum { font-size: 11.5px; color: var(--mute); margin-left: auto; }
+.filtersum b { color: var(--text); font-family: var(--mono); }
+
+/* ====================================================================================
+   6. Hero: the constellation, with the entry list permanently beside it
+   ==================================================================================== */
+.hero { display: grid; grid-template-columns: minmax(0, 1fr) 330px; min-height: 460px; }
+/* In table mode both children are hidden, so the hero must give up its min-height too:
+   left on, it reserves a 460px void between the filters and the table. */
+.hero.table-mode { grid-template-columns: minmax(0, 1fr); min-height: 0; }
+.hero.table-mode .field, .hero.table-mode .entrylist { display: none; }
+
+.field { background: var(--sky); position: relative; min-height: 460px; }
+.field svg { display: block; width: 100%; height: 100%; }
+.field .fieldnote {
+  position: absolute; left: 12px; bottom: 10px; right: 12px;
+  font-size: 10.5px; color: var(--mute); line-height: 1.5; pointer-events: none;
+}
+.field .fieldnote b { color: var(--dim); font-weight: 500; }
+
+.node { cursor: pointer; }
+.node circle.body { transition: fill-opacity 140ms, stroke 140ms; }
+.node circle.halo { fill: none; stroke: var(--amber); stroke-opacity: .5; }
+.node.dim { opacity: .13; }
+.node.hot circle.body { stroke: var(--brass); stroke-width: 2.4; }
+.edge { stroke: var(--line); stroke-width: .7; fill: none; }
+.edge.dim { opacity: .18; }
+.clusterlabel {
+  font-family: var(--sans); font-size: 10px; fill: var(--mute);
+  text-transform: uppercase; letter-spacing: .1em;
+}
+
+/* The cross-highlight pulse: the single element this interface is remembered by. */
+@keyframes node-pulse {
+  0%   { r: var(--r0); stroke-opacity: 1; }
+  70%  { r: calc(var(--r0) * 2.9); stroke-opacity: 0; }
+  100% { r: calc(var(--r0) * 2.9); stroke-opacity: 0; }
+}
+.node .pulse {
+  fill: none; stroke: var(--brass); stroke-width: 2; pointer-events: none;
+  opacity: 0;
+}
+.node.hot .pulse { opacity: 1; animation: node-pulse 620ms var(--drawer-ease) forwards; }
+
+.entrylist { border-left: 1px solid var(--line); display: flex; flex-direction: column; min-width: 0; }
+.entrylist .lhead {
+  padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--surface-2);
+  font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--mute);
+  display: flex; justify-content: space-between; gap: 8px;
+}
+.entrylist .rows { overflow-y: auto; flex: 1; max-height: 560px; }
+.erow {
+  display: grid; grid-template-columns: 58px 1fr auto; gap: 9px; align-items: baseline;
+  padding: 7px 12px; border-bottom: 1px solid var(--line); cursor: pointer;
+  border-left: 3px solid transparent;
+}
+.erow:hover, .erow.hot { background: var(--surface-2); border-left-color: var(--brass); }
+.erow .pdbid { font-family: var(--mono); font-size: 12.5px; color: var(--accent); font-weight: 500; }
+.erow .desc {
+  font-size: 11.5px; color: var(--dim); overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; min-width: 0;
+}
+.erow .res {
+  font-family: var(--mono); font-size: 11.5px; color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.erow .mdot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; }
+.erow.holo .pdbid::after { content: "\25CF"; color: var(--amber); font-size: 8px; margin-left: 5px; }
+.empty { padding: 34px 16px; text-align: center; color: var(--mute); font-size: 12.5px; }
+
+/* ====================================================================================
+   7. The index card (slide-over)
+   ==================================================================================== */
+.scrim {
+  position: fixed; inset: 0; background: rgba(8,11,18,.6); z-index: 40;
+  opacity: 0; pointer-events: none; transition: opacity 220ms;
+}
+.scrim.on { opacity: 1; pointer-events: auto; }
+.indexcard {
+  position: fixed; top: 0; right: 0; bottom: 0; width: min(470px, 100%);
+  background: var(--surface); border-left: 1px solid var(--brass-dk);
+  box-shadow: var(--shadow-lift); z-index: 41;
+  transform: translateX(100%); transition: transform 300ms var(--drawer-ease);
+  display: flex; flex-direction: column;
+}
+.indexcard.on { transform: none; }
+.indexcard .chead {
+  padding: 14px 16px; border-bottom: 1px solid var(--line); background: var(--surface-2);
+  display: flex; align-items: flex-start; gap: 12px;
+}
+/* The card's pin: physical, therefore brass. */
+.indexcard .chead::before {
+  content: ""; width: 9px; height: 9px; border-radius: 50%; margin-top: 5px; flex: 0 0 auto;
+  background: radial-gradient(circle at 30% 30%, var(--brass), var(--brass-dk));
+}
+.indexcard .chead h2 { font-family: var(--mono); font-size: 17px; font-weight: 600; }
+.indexcard .chead .t { font-size: 11.5px; color: var(--dim); margin-top: 4px; line-height: 1.45; }
+.indexcard .cbody { overflow-y: auto; padding: 14px 16px 30px; flex: 1; }
+.indexcard .close {
+  margin-left: auto; background: none; border: 1px solid var(--line); border-radius: 6px;
+  color: var(--dim); width: 27px; height: 27px; line-height: 1; flex: 0 0 auto;
+}
+.indexcard .close:hover { color: var(--text); border-color: var(--brass-dk); }
+
+.kv { display: grid; grid-template-columns: 118px 1fr; gap: 5px 12px; font-size: 12.5px; }
+.kv dt { color: var(--mute); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+.kv dd { margin: 0; font-family: var(--mono); font-size: 12px; color: var(--text); word-break: break-word; }
+.kv dd.prose { font-family: var(--sans); font-size: 12.5px; color: var(--dim); }
+.csect { margin-top: 18px; }
+.csect h3 {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .12em; color: var(--mute);
+  border-bottom: 1px solid var(--line); padding-bottom: 5px; margin-bottom: 9px;
+  font-family: var(--sans); font-weight: 600;
+}
+.seqbox {
+  font-family: var(--mono); font-size: 10.5px; line-height: 1.65; color: var(--dim);
+  background: var(--sky); border: 1px solid var(--line); border-radius: 6px;
+  padding: 9px; word-break: break-all; max-height: 168px; overflow-y: auto;
+}
+.liglist { display: flex; flex-wrap: wrap; gap: 5px; }
+.liglist .lig {
+  font-family: var(--mono); font-size: 11px; padding: 2px 7px; border-radius: 4px;
+  border: 1px solid var(--line); background: var(--sky); color: var(--dim);
+}
+.liglist .lig.real { border-color: color-mix(in srgb, var(--amber) 50%, var(--line)); color: var(--amber); }
+.outlinks { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+.outlinks a {
+  font-size: 11.5px; padding: 5px 11px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--sky); color: var(--dim);
+}
+.outlinks a:hover { color: var(--text); border-color: var(--brass-dk); text-decoration: none; }
+
+/* ====================================================================================
+   8. Coverage sparkline
+   ==================================================================================== */
+.covwrap { padding: 13px; }
+.covbar { display: block; width: 100%; height: 54px; }
+.covbar rect.depth { fill: var(--accent); }
+.covbar rect.thin  { fill: var(--oxide); }
+.covbar rect.none  { fill: var(--oxide); opacity: .45; }
+.covaxis { font-family: var(--mono); font-size: 9.5px; fill: var(--mute); }
+.covlegend { font-size: 11px; color: var(--mute); margin-top: 7px; display: flex; gap: 15px; flex-wrap: wrap; }
+.covlegend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; }
+
+/* ====================================================================================
+   9. Placeholders for the phases still to land
+   ==================================================================================== */
+.placeholder { padding: 34px 26px; max-width: 78ch; }
+.placeholder .phase {
+  display: inline-block; font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--brass); border: 1px solid var(--brass-dk);
+  border-radius: 4px; padding: 3px 9px; margin-bottom: 13px;
+}
+.placeholder h2 { font-size: 20px; margin-bottom: 9px; }
+.placeholder p { color: var(--dim); font-size: 13px; line-height: 1.65; }
+.placeholder ul { color: var(--dim); font-size: 13px; line-height: 1.8; padding-left: 19px; margin: 10px 0 0; }
+.placeholder ul b { color: var(--text); font-weight: 600; }
+.alreadyknow {
+  margin-top: 22px; border-top: 1px solid var(--line); padding-top: 16px;
+}
+.alreadyknow h3 {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .12em; color: var(--mute);
+  margin-bottom: 11px; font-family: var(--sans); font-weight: 600;
+}
+.minitable { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.minitable th {
+  text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--mute); font-weight: 600; padding: 5px 10px 5px 0; border-bottom: 1px solid var(--line);
+}
+.minitable td { padding: 5px 10px 5px 0; border-bottom: 1px solid var(--line); color: var(--dim); }
+.minitable td.n { font-family: var(--mono); color: var(--text); font-variant-numeric: tabular-nums; }
+.minitable td.name { color: var(--text); }
+
+/* ====================================================================================
+   10. Disambiguation + errors
+   ==================================================================================== */
+.centred { flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px 22px; }
+.cardstack { width: min(680px, 100%); }
+.cardstack > h1 { font-size: 24px; margin-bottom: 7px; }
+.cardstack > p { color: var(--dim); font-size: 13.5px; margin: 0 0 20px; }
+.candidates { display: grid; gap: 8px; }
+.cand {
+  display: block; padding: 12px 15px; background: var(--surface); border: 1px solid var(--line);
+  border-left: 3px solid var(--brass-dk); border-radius: var(--radius);
+  transition: transform 150ms var(--drawer-ease), border-color 150ms;
+}
+.cand:hover { transform: translateX(5px); border-left-color: var(--brass); text-decoration: none; }
+.cand .label { color: var(--text); font-size: 14px; font-weight: 550; }
+.cand .sublabel { color: var(--dim); font-size: 12.5px; font-style: italic; margin-top: 2px; }
+.cand .meta { color: var(--mute); font-size: 11px; font-family: var(--mono); margin-top: 5px; }
+
+/* ====================================================================================
+   11. Loading (the drawer being filed)
+   ==================================================================================== */
+.filing { padding: 60px 26px; text-align: center; }
+.filing .plate { margin-bottom: 20px; }
+.filing p { color: var(--dim); font-size: 13px; margin: 12px 0 0; }
+.filing .step { color: var(--mute); font-size: 11.5px; font-family: var(--mono); margin-top: 7px; }
+.bar { height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; width: min(340px, 90%); margin: 20px auto 0; }
+.bar i {
+  display: block; height: 100%; width: 34%; border-radius: 2px;
+  background: linear-gradient(90deg, var(--brass-dk), var(--brass));
+  animation: filing 1.25s var(--drawer-ease) infinite;
+}
+@keyframes filing { 0% { transform: translateX(-100%); } 100% { transform: translateX(390%); } }
+
+/* ====================================================================================
+   12. Footer
+   ==================================================================================== */
+footer.site {
+  border-top: 1px solid var(--line); background: var(--bg-2);
+  padding: 18px 0 26px; font-size: 11.5px; color: var(--mute); line-height: 1.75;
+}
+footer.site a { color: var(--dim); }
+footer.site a:hover { color: var(--text); }
+footer.site .sources { margin-top: 7px; }
+
+.themetoggle {
+  position: fixed; right: 14px; bottom: 14px; z-index: 30;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: 50%;
+  width: 34px; height: 34px; color: var(--dim); font-size: 14px; line-height: 1;
+  box-shadow: var(--shadow);
+}
+.themetoggle:hover { color: var(--brass); border-color: var(--brass-dk); }
+
+/* ====================================================================================
+   13. Tabulator, skinned to the tokens
+   ==================================================================================== */
+.tabulator {
+  background: var(--surface); border: 0; font-family: var(--sans); font-size: 12.5px;
+  color: var(--text);
+}
+.tabulator .tabulator-header {
+  background: var(--surface-2); border-bottom: 1px solid var(--line); color: var(--dim);
+}
+.tabulator .tabulator-header .tabulator-col {
+  background: var(--surface-2); border-right: 1px solid var(--line);
+}
+.tabulator .tabulator-header .tabulator-col-title {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--mute);
+  font-weight: 600;
+}
+.tabulator .tabulator-header .tabulator-col.tabulator-sortable[aria-sort="ascending"] .tabulator-col-title,
+.tabulator .tabulator-header .tabulator-col.tabulator-sortable[aria-sort="descending"] .tabulator-col-title {
+  color: var(--brass);
+}
+.tabulator .tabulator-row { background: var(--surface); border-bottom: 1px solid var(--line); }
+.tabulator .tabulator-row.tabulator-row-even { background: var(--surface); }
+.tabulator .tabulator-row:hover, .tabulator .tabulator-row.hot {
+  background: var(--surface-2) !important;
+}
+.tabulator .tabulator-row .tabulator-cell {
+  border-right: 1px solid var(--line); padding: 6px 9px; color: var(--dim);
+}
+.tabulator .tabulator-row .tabulator-cell.mono {
+  font-family: var(--mono); color: var(--text); font-variant-numeric: tabular-nums;
+}
+.tabulator .tabulator-row .tabulator-cell.idcell { font-family: var(--mono); color: var(--accent); }
+/* --sky is the constellation field, nearly black: an empty filter box in it reads as a
+   solid blank rectangle rather than as somewhere to type. */
+.tabulator .tabulator-header-filter input, .tabulator .tabulator-header-filter select {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 4px;
+  color: var(--text); font-family: var(--mono); font-size: 11px; padding: 3px 6px;
+  width: 100%;
+}
+.tabulator .tabulator-header-filter input:focus { border-color: var(--accent); outline: none; }
+.tabulator .tabulator-footer {
+  background: var(--surface-2); border-top: 1px solid var(--line); color: var(--dim);
+}
+.tabulator .tabulator-footer .tabulator-page {
+  background: var(--surface); border: 1px solid var(--line); color: var(--dim); border-radius: 5px;
+}
+.tabulator .tabulator-footer .tabulator-page.active { background: var(--brass); color: var(--on-brass); }
+.tabulator-menu {
+  background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow);
+  border-radius: 7px;
+}
+.tabulator-menu .tabulator-menu-item { color: var(--dim); font-size: 12px; }
+.tabulator-menu .tabulator-menu-item:hover { background: var(--surface-2); color: var(--text); }
+
+.tablebar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 11px 13px; border-bottom: 1px solid var(--line); }
+.tablebar .grow { flex: 1; }
+
+/* ====================================================================================
+   14. Responsive. Mobile at every phase, not retrofitted.
+   ==================================================================================== */
+@media (max-width: 1080px) {
+  .hero { grid-template-columns: minmax(0, 1fr); }
+  .entrylist { border-left: 0; border-top: 1px solid var(--line); }
+  .entrylist .rows { max-height: 340px; }
+}
+@media (max-width: 780px) {
+  :root { --rail-w: 100%; }
+  .drawer-open { grid-template-columns: minmax(0, 1fr); }
+  .rail {
+    position: static; max-height: none; border-right: 0; border-bottom: 1px solid var(--line);
+    display: flex; overflow-x: auto; padding: 0; gap: 0; scrollbar-width: thin;
+  }
+  .rail .home { border-bottom: 0; border-right: 1px solid var(--line); padding: 12px 14px; margin: 0; flex: 0 0 auto; }
+  .divider {
+    width: auto; flex: 0 0 auto; border-left: 0; border-bottom: 3px solid transparent;
+    padding: 11px 13px 9px; white-space: nowrap;
+  }
+  .divider:hover, .divider[aria-selected="true"] { transform: none; }
+  .divider[aria-selected="true"] { border-bottom-color: var(--brass); }
+  .rail .railnote { display: none; }
+  .contents { padding: 16px 14px 50px; }
+  /* The stamp is first in the DOM because it is absolutely positioned on desktop. Once it
+     rejoins the flow it has to be sent to the end, or the family gets stamped FILED before
+     it has been named. */
+  .famhead { padding-right: 0; display: flex; flex-direction: column; align-items: flex-start; }
+  .stamp {
+    position: static; display: inline-block; transform: rotate(-3deg);
+    margin-top: 12px; order: 1;
+  }
+  .field, .hero { min-height: 380px; }
+  .wrap { padding: 0 14px; }
+  .drawer-face { padding: 28px 22px 30px; }
+  .searchrow { flex-direction: column; }
+  .kv { grid-template-columns: 96px 1fr; }
+}
+
+/* ====================================================================================
+   15. Reduced motion. Everything above that moves, stops.
+   ==================================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+  .drawer-open > * { animation: none; opacity: 1; transform: none; }
+  .indexcard { transition: none; }
+  .divider:hover, .cand:hover { transform: none; }
+}

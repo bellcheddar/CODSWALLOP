@@ -1,0 +1,9 @@
+# CODSWALLOP runtime dependencies. Phase 1 is pure HTTP + SQLite: no compiled toolchain
+# needed on the droplet. The structural-biology stack (biotite, gemmi, DSSP, PLIP) arrives
+# with Phase 3 and is deliberately not pulled in yet.
+requests>=2.31          # RCSB Search / Data / UniProt / InterPro HTTP calls
+tenacity>=8.2           # retry with backoff, and honouring Retry-After on 429
+flask>=3.0              # web app
+gunicorn>=21.2          # prod WSGI server (Linux droplet)
+jinja2>=3.1             # templates (pulled in by flask, pinned for clarity)
+python-dotenv>=1.0      # .env: droplet SSH target, server name, bind address

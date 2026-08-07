@@ -1,0 +1,24 @@
+# systemd unit for the CODSWALLOP web app (gunicorn behind nginx). Always on.
+# Installed to /etc/systemd/system/codswallop-web.service by provision.sh.
+[Unit]
+Description=CODSWALLOP web app (gunicorn)
+After=network.target
+
+[Service]
+Type=simple
+User=codswallop
+Group=codswallop
+WorkingDirectory=/opt/codswallop
+EnvironmentFile=-/opt/codswallop/.env
+ExecStart=/opt/codswallop/.venv/bin/gunicorn --config /opt/codswallop/deploy/gunicorn.conf.py wsgi:app
+Restart=on-failure
+RestartSec=3
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/codswallop
+
+[Install]
+WantedBy=multi-user.target

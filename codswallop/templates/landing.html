@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}CODSWALLOP &mdash; every structure of a protein family, filed{% endblock %}
+
+{% block body %}
+<div class="drawer-front">
+  <div class="drawer-face">
+    <span class="plate">Codswallop</span>
+
+    <h1>The whole family, filed.</h1>
+
+    <p class="expand">
+      <b>C</b>omparative <b>O</b>verview of <b>D</b>omains, <b>S</b>tructures,
+      <b>W</b>hole-families, <b>A</b>lignments, <b>L</b>igands, <b>L</b>ineages,
+      <b>O</b>rganisms &amp; <b>P</b>DB entries.
+    </p>
+
+    <p class="lede">
+      Hand it a protein and it does the fortnight of manual PDB trawling in ninety seconds:
+      every entry, every construct, every ligand, cross-referenced and interactive.
+    </p>
+
+    <form class="searchrow" action="{{ url_for('lookup') }}" method="get" role="search">
+      <label class="sr-only" for="q">Protein, PDB ID, accession, domain or sequence</label>
+      <input id="q" name="q" type="text" autocomplete="off" autofocus
+             placeholder="PDB ID, UniProt accession, gene, Pfam, sequence or name"
+             value="{{ query or '' }}">
+      <button class="btn" type="submit">Open the drawer</button>
+    </form>
+
+    <p class="hints">
+      Try
+      <button type="button" class="eg">1AKI</button>
+      <button type="button" class="eg">P00918</button>
+      <button type="button" class="eg">PF00062</button>
+      <button type="button" class="eg">TEM-1 beta-lactamase</button>
+      <button type="button" class="eg">4HHB</button>
+      <br>
+      A PDB ID, a UniProt accession, a gene name, a Pfam or InterPro identifier, a raw
+      sequence, or just what the protein is called. Anything ambiguous asks rather than guesses.
+    </p>
+
+    {% if recent %}
+    <div class="recent">
+      <h2>Recently filed</h2>
+      <ul>
+        {% for r in recent %}
+        <li><a href="{{ url_for('family_page', slug=r.slug) }}">{{ r.name or r.slug }}
+          <b>{{ r.n_entries }}</b></a></li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // The example chips fill the box rather than navigating, so the reader sees what kind of
+  // thing they just asked for before it resolves.
+  document.querySelectorAll(".hints .eg").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var q = document.getElementById("q");
+      q.value = b.textContent.trim();
+      q.focus();
+    });
+  });
+</script>
+{% endblock %}

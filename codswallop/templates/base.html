@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}CODSWALLOP{% endblock %}</title>
+  <meta name="description" content="{% block description %}Family-centric structural biology: every PDB entry for a protein family, cross-referenced and interactive.{% endblock %}">
+  <link rel="icon" href="{{ asset('icon.svg') }}" type="image/svg+xml">
+  <link rel="stylesheet" href="{{ asset('fonts/fonts.css') }}">
+  <link rel="stylesheet" href="{{ asset('theme.css') }}">
+  {% block head %}{% endblock %}
+  <script>
+    // Applied before first paint so a light-theme reader never sees a dark flash. The
+    // stored choice wins over the OS preference in both directions; with nothing stored,
+    // the CSS media query decides and this leaves the attribute off entirely.
+    try {
+      var t = localStorage.getItem("codswallop-theme");
+      if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+    } catch (e) { /* private browsing: fall through to the media query */ }
+  </script>
+</head>
+<body>
+<div class="room">
+  {% block body %}{% endblock %}
+
+  <footer class="site">
+    <div class="wrap">
+      <b>CODSWALLOP</b> v{{ version }} &mdash; Comparative Overview of Domains, Structures,
+      Whole-families, Alignments, Ligands, Lineages, Organisms &amp; PDB entries. Built by
+      <a href="https://marcdeller.com" target="_blank" rel="noopener noreferrer">marcdeller.com</a>,
+      contact <a href="mailto:marc@marcdeller.com">marc@marcdeller.com</a>.
+      <div class="sources">
+        Data from the
+        <a href="https://www.rcsb.org/" target="_blank" rel="noopener noreferrer">RCSB PDB</a>
+        (Search and Data APIs),
+        <a href="https://www.ebi.ac.uk/pdbe/" target="_blank" rel="noopener noreferrer">PDBe</a>,
+        <a href="https://www.uniprot.org/" target="_blank" rel="noopener noreferrer">UniProt</a> and
+        <a href="https://www.ebi.ac.uk/interpro/" target="_blank" rel="noopener noreferrer">InterPro</a>.
+        Please cite them, not this tool, when the data does the work.
+      </div>
+    </div>
+  </footer>
+</div>
+
+<button class="themetoggle" id="themeToggle" type="button"
+        aria-label="Switch between the light and dark archive" title="Light / dark">&#9681;</button>
+<script src="{{ asset('app.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

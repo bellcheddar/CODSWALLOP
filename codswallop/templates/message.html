@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}{{ heading }} &mdash; CODSWALLOP{% endblock %}
+
+{% block body %}
+<div class="centred">
+  <div class="cardstack">
+    <span class="plate">Codswallop</span>
+    <h1 style="margin-top:18px">{{ heading }}</h1>
+    <p>{{ message }}</p>
+
+    <form class="searchrow" action="{{ url_for('lookup') }}" method="get" role="search"
+          style="margin-top:18px">
+      <label class="sr-only" for="q">Try something else</label>
+      <input id="q" name="q" type="text" autocomplete="off" autofocus
+             placeholder="PDB ID, UniProt accession, gene, Pfam, sequence or name"
+             value="{{ query or '' }}">
+      <button class="btn" type="submit">Open the drawer</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
