@@ -139,13 +139,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
   padding: 40px 38px 34px;
   position: relative;
 }
-/* The drawer pull: physical, therefore brass. */
-.drawer-face::after {
-  content: ""; position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%);
-  width: clamp(92px, 12%, 180px); height: 7px; border-radius: 4px;
-  background: linear-gradient(180deg, var(--brass), var(--brass-dk));
-  opacity: .55;
-}
 .plate {
   display: inline-block; padding: 7px 16px 8px; border-radius: 3px;
   background: linear-gradient(168deg, var(--brass), var(--brass-dk));
@@ -158,10 +151,38 @@ button { font: inherit; color: inherit; cursor: pointer; }
   font-size: clamp(30px, 6vw, 46px); margin: 20px 0 6px; color: var(--text);
 }
 .expand {
-  font-size: 12.5px; color: var(--dim); line-height: 1.7; margin: 0 0 22px;
-  max-width: 46ch;
+  font-size: 16px; color: var(--dim); line-height: 1.75; margin: 0 0 24px;
+  max-width: 52ch;
 }
-.expand b { color: var(--brass); font-weight: 600; }
+
+/* The ten letters that spell CODSWALLOP pulse in sequence, so the acronym assembles itself
+   rather than needing to be pointed out. inline-block because transform does nothing to an
+   inline box. The stagger is per letter and the cycle is long, so it reads as one slow wave
+   across the line rather than ten things twitching at once. */
+.expand > span { white-space: nowrap; }
+.expand b {
+  color: var(--brass); font-weight: 700; display: inline-block;
+  transform-origin: 50% 60%;
+  animation: acronym 5.5s var(--drawer-ease) infinite both;
+}
+
+.expand > span:nth-of-type(1) b { animation-delay: 0s; }
+.expand > span:nth-of-type(2) b { animation-delay: .16s; }
+.expand > span:nth-of-type(3) b { animation-delay: .32s; }
+.expand > span:nth-of-type(4) b { animation-delay: .48s; }
+.expand > span:nth-of-type(5) b { animation-delay: .64s; }
+.expand > span:nth-of-type(6) b { animation-delay: .80s; }
+.expand > span:nth-of-type(7) b { animation-delay: .96s; }
+.expand > span:nth-of-type(8) b { animation-delay: 1.12s; }
+.expand > span:nth-of-type(9) b { animation-delay: 1.28s; }
+.expand > span:nth-of-type(10) b { animation-delay: 1.44s; }
+
+@keyframes acronym {
+  0%, 55%, 100% { transform: scale(1); color: var(--brass); text-shadow: none; }
+  12%  { transform: scale(1.6); color: var(--brass);
+         text-shadow: 0 0 14px color-mix(in srgb, var(--brass) 70%, transparent); }
+  30%  { transform: scale(1); color: var(--brass); text-shadow: none; }
+}
 .lede { color: var(--dim); font-size: 14px; margin: 0 0 24px; max-width: 52ch; }
 
 .searchrow { display: flex; gap: 9px; }

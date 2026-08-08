@@ -8,10 +8,16 @@
 
     <h1>The PDB, summarised&hellip;</h1>
 
+    {# Each word is wrapped so it cannot break after its initial. The initials are
+       inline-block (transform does nothing to an inline box), and an inline-block creates a
+       line-break opportunity against the text beside it: without the wrapper the line broke
+       between the A and "lignments". #}
     <p class="expand">
-      <b>C</b>omparative <b>O</b>verview of <b>D</b>omains, <b>S</b>tructures,
-      <b>W</b>hole-families, <b>A</b>lignments, <b>L</b>igands, <b>L</b>ineages,
-      <b>O</b>rganisms &amp; <b>P</b>DB entries.
+      <span><b>C</b>omparative</span> <span><b>O</b>verview</span> of
+      <span><b>D</b>omains,</span> <span><b>S</b>tructures,</span>
+      <span><b>W</b>hole-families,</span> <span><b>A</b>lignments,</span>
+      <span><b>L</b>igands,</span> <span><b>L</b>ineages,</span>
+      <span><b>O</b>rganisms</span> &amp; <span><b>P</b>DB</span> entries.
     </p>
 
     <p class="lede">
