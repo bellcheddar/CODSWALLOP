@@ -991,3 +991,41 @@ a.dchip:hover { border-color: var(--accent); color: var(--text); text-decoration
 .brands { display: block; font-size: 10.5px; color: var(--mute); margin-top: 2px; }
 .ctable .badge.tgt { border-color: var(--mint); color: var(--mint); }
 .caveat.warn { border-left-color: var(--amber); color: var(--dim); }
+
+/* The figlet banner. Every rule here is load-bearing and was learned the hard way.
+   line-height 1, or the glyph rows separate into stripes. text-align left inside a centred
+   wrapper, because centring each LINE ragged-rights the art. Whole-number px at every
+   breakpoint, since a fractional size rounds each row differently and the columns drift.
+   A system mono stack rather than the page's webfont: a face whose advance does not match
+   its glyph width shears the art. font-weight 400, because synthesised bold thickens the
+   strokes unevenly. */
+.banner {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 5px;
+  line-height: 1;
+  font-weight: 400;
+  letter-spacing: 0;
+  margin: 0 0 14px;
+  padding: 0;
+  color: var(--brass);
+  text-align: left;
+  display: inline-block;
+  white-space: pre;
+  overflow-x: auto;
+  max-width: 100%;
+  -webkit-font-smoothing: antialiased;
+}
+/* 96 columns of art. A monospace advance is about 0.6 em, so the rendered width is roughly
+   58 x the font size: 5px fits a 320px phone, 13px fills a desktop panel. */
+@media (min-width: 480px)  { .banner { font-size: 7px; } }
+@media (min-width: 700px)  { .banner { font-size: 9px; } }
+@media (min-width: 900px)  { .banner { font-size: 11px; } }
+@media (min-width: 1180px) { .banner { font-size: 13px; } }
+
+/* Recent searches: twenty, then the rest on request. */
+.morebtn {
+  margin-top: 10px; font-size: 11.5px; color: var(--dim);
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 5px 12px; cursor: pointer;
+}
+.morebtn:hover { color: var(--brass); border-color: var(--brass); }

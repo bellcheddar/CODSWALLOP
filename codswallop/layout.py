@@ -44,6 +44,47 @@ def _golden_jitter(i: int) -> float:
     return (i * 0.6180339887498949) % 1.0
 
 
+def third_axis(tm: list) -> Optional[list]:
+    """The third principal coordinate of the TM matrix, so the map can be rotated.
+
+    Computed here rather than stored in the artefact, because the artefact already ships the
+    whole matrix for the heatmap: the third axis is a twenty-line eigendecomposition of
+    something already on hand, and deriving it costs less than a pipeline version bump would
+    have cost in rebuilds. Same classical MDS as `embed.embed`, one component further along.
+
+    numpy only, and only here: it is already installed everywhere as a biopython dependency,
+    which is not true of biotite or tmtools.
+    """
+    try:
+        import numpy as np
+    except ImportError:                         # pragma: no cover - numpy is a hard dep
+        return None
+    n = len(tm or [])
+    if n < 4:
+        return None
+    try:
+        m = np.asarray(tm, dtype=float)
+        if m.shape != (n, n):
+            return None
+        d = 1.0 - m
+        np.fill_diagonal(d, 0.0)
+        j = np.eye(n) - np.ones((n, n)) / n
+        b = -0.5 * j @ (d ** 2) @ j
+        vals, vecs = np.linalg.eigh(b)
+        order = np.argsort(vals)[::-1][:3]
+        if len(order) < 3 or vals[order[2]] <= 0:
+            # A family that is genuinely flat has no third axis to show, and inventing one
+            # from a negative eigenvalue would be drawing noise as structure.
+            return None
+        coords = vecs[:, order] * np.sqrt(np.maximum(vals[order], 0))
+        # Scaled with x and y, not independently: the point of the third axis is that it is
+        # the same kind of distance, so normalising it alone would exaggerate a shallow one.
+        scale = float(np.max(np.abs(coords[:, :2]))) or 1.0
+        return [round(float(v / scale), 4) for v in coords[:, 2]]
+    except Exception:                           # noqa: BLE001
+        return None
+
+
 def _from_embedding(members: list[dict], embedding: dict) -> dict:
     """Position every member from the pairwise TM-score matrix.
 
@@ -57,6 +98,12 @@ def _from_embedding(members: list[dict], embedding: dict) -> dict:
     the panel, rather than being left to look like a measurement.
     """
     reps = embedding["representatives"]
+    # Attach the third coordinate before anything reads a representative, so the nodes and
+    # the "z" flag below agree about whether this family has one.
+    zs = third_axis(embedding.get("tm") or [])
+    if zs and len(zs) == len(reps):
+        for r, z in zip(reps, zs):
+            r["z"] = z
     by_seq = {r["seq_id"]: r for r in reps}
     # Representatives sorted by identity, for the nearest-identity fallback.
     ident_of = {}
@@ -84,12 +131,15 @@ def _from_embedding(members: list[dict], embedding: dict) -> dict:
         per_point[key] = k + 1
         angle = 2 * math.pi * _golden_jitter(k)
         radius = 0.012 * math.sqrt(k)
-        nodes.append({
+        node = {
             "id": m["entity_id"], "pdb_id": m["pdb_id"],
             "cluster": 0, "cluster_name": "",
             "x": round(r["x"] + radius * math.cos(angle), 4),
             "y": round(r["y"] + radius * math.sin(angle), 4),
-        })
+        }
+        if r.get("z") is not None:
+            node["z"] = round(r["z"] + radius * math.sin(angle * 1.7), 4)
+        nodes.append(node)
 
     # Edges between representatives above the conventional same-fold threshold. This is what
     # the plan asked for all along: "edges between entries above the identity threshold",
@@ -110,6 +160,9 @@ def _from_embedding(members: list[dict], embedding: dict) -> dict:
         "clusters": [],
         "placeholder": False,
         "embedded": True,
+        # Whether the map can be turned. A flat family has no third axis worth drawing, and
+        # the control says so rather than offering a rotation that does nothing.
+        "three_d": bool(zs and len(zs) == len(reps)),
         # Shipped so the Structures panel can draw the matrix and cluster it in the browser,
         # where the cut height can be a live control rather than a decision baked into the
         # artefact. ~36 kB for an 80-representative family.

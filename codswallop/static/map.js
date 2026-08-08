@@ -73,6 +73,53 @@
     this.draw();
   };
 
+  /** How solid a node looks at depth `z`, in the -1..1 range the coordinates span. */
+  function depthOpacity(z) {
+    var t = Math.max(-1, Math.min(1, z));
+    return (0.45 + 0.55 * (t + 1) / 2).toFixed(3);
+  }
+
+  /** A projection function for the rotation the map is at right now. */
+  Constellation.prototype.projector = function () {
+    var f = this._frame || { cx: 0, cy: 0, scale: 1 };
+    var yaw = this.yaw || 0, pitch = this.pitch || 0;
+    var cyw = Math.cos(yaw), syw = Math.sin(yaw);
+    var cp = Math.cos(pitch), sp = Math.sin(pitch);
+    return function (n) {
+      var x = n.x, y = n.y, z = n.z || 0;
+      var x1 = x * cyw + z * syw;
+      var z1 = -x * syw + z * cyw;
+      var y1 = y * cp - z1 * sp;
+      return { x: f.cx + x1 * f.scale, y: f.cy + y1 * f.scale, z: y * sp + z1 * cp };
+    };
+  };
+
+  /** Move every node to its current projection. No DOM is created or destroyed. */
+  Constellation.prototype.reproject = function () {
+    var self = this;
+    if (!this.map || !this._frame) return;
+    var project = this.projector();
+    this.map.nodes.forEach(function (n) {
+      var g = self.nodesById[n.id];
+      if (!g) return;
+      var p = project(n);
+      g.setAttribute("transform", "translate(" + p.x.toFixed(2) + "," + p.y.toFixed(2) + ")");
+      if (n.z != null) g.style.opacity = depthOpacity(p.z);
+    });
+    // The edges are between representatives and have to follow the same rotation, or they
+    // detach from the nodes they connect.
+    var pos = {};
+    this.map.nodes.forEach(function (n) { pos[n.id] = n; });
+    var lines = this.svg.querySelectorAll(".edges line");
+    for (var i = 0; i < lines.length; i++) {
+      var a = pos[lines[i].getAttribute("data-a")], b = pos[lines[i].getAttribute("data-b")];
+      if (!a || !b) continue;
+      var pa = project(a), pb = project(b);
+      lines[i].setAttribute("x1", pa.x.toFixed(2)); lines[i].setAttribute("y1", pa.y.toFixed(2));
+      lines[i].setAttribute("x2", pb.x.toFixed(2)); lines[i].setAttribute("y2", pb.y.toFixed(2));
+    }
+  };
+
   Constellation.prototype.resize = function () {
     var box = this.svg.parentNode.getBoundingClientRect();
     if (!box.width || !box.height) return;
@@ -119,6 +166,16 @@
     svg.setAttribute("viewBox", "0 0 " + w + " " + h);
     while (svg.firstChild) svg.removeChild(svg.firstChild);
 
+    // Rotation about the vertical axis then the horizontal one, applied to the three MDS
+    // coordinates before projection. Kept on the instance so a drag can re-project without
+    // rebuilding the DOM: a 2,000-node family is 2,000 <g> elements, and recreating them at
+    // 60 Hz is not a rotation, it is a slideshow.
+    // The frame the projection needs, kept on the instance so a rotation can rebuild the
+    // projector without redrawing. The trig has to be recomputed per rotation rather than
+    // captured here: closing over it once meant every later projection used the angles from
+    // the last full draw, so dragging updated `yaw` and moved nothing.
+    self._frame = { cx: cx, cy: cy, scale: scale };
+    var project = self.projector();
     var X = function (x) { return cx + x * scale; };
     var Y = function (y) { return cy + y * scale; };
 
@@ -193,12 +250,17 @@
     map.nodes.forEach(function (n) {
       var m = self.byId[n.id];
       if (!m) return;
+      var p3 = project(n);
       var r = radiusFor(m.resolution, nodeScale);
       var g = el("g", {
         "class": "node", "data-id": n.id, tabindex: "-1",
-        transform: "translate(" + X(n.x) + "," + Y(n.y) + ")"
+        transform: "translate(" + p3.x.toFixed(2) + "," + p3.y.toFixed(2) + ")"
       });
       g.style.setProperty("--r0", r + "px");
+      // Depth. Without it a rotation is only a reshuffle: nothing tells the eye which of
+      // two overlapping nodes is in front. Opacity rather than size, because size already
+      // means resolution here and must go on meaning only that.
+      if (n.z != null) g.style.opacity = depthOpacity(p3.z);
 
       // The pulse ring: invisible until the cross-highlight fires.
       g.appendChild(el("circle", { "class": "pulse", r: r }));
@@ -234,6 +296,56 @@
 
     // ---- one delegated listener for the whole field --------------------------------
     // Rather than a listener per node: a family can have two thousand of them.
+    // ---- drag to rotate --------------------------------------------------------------
+    // Only when the family has a third axis. Pointer events rather than mouse, so a finger
+    // works; and a drag that never moves more than a few pixels is left to fall through as
+    // a click, or picking a node would become impossible.
+    if (self.map.three_d) {
+      var drag = null;
+      svg.style.cursor = "grab";
+      svg.onpointerdown = function (ev) {
+        if (ev.button !== 0) return;
+        drag = { x: ev.clientX, y: ev.clientY, moved: 0, id: ev.pointerId,
+                 yaw: self.yaw || 0, pitch: self.pitch || 0 };
+        // Capture keeps the drag alive when the cursor leaves the panel mid-turn. It throws
+        // for a pointer id the browser has no active pointer for, so it must not be allowed
+        // to take the rest of the handler down with it: without the guard the drag was
+        // never registered at all.
+        try { svg.setPointerCapture(ev.pointerId); } catch (e) { /* carry on uncaptured */ }
+        svg.style.cursor = "grabbing";
+      };
+      svg.onpointermove = function (ev) {
+        if (!drag) return;
+        var dx = ev.clientX - drag.x, dy = ev.clientY - drag.y;
+        drag.moved = Math.max(drag.moved, Math.abs(dx) + Math.abs(dy));
+        self.yaw = drag.yaw + dx * 0.008;
+        // Clamped, so the map cannot be turned upside down and lose its own axis labels.
+        self.pitch = Math.max(-1.2, Math.min(1.2, drag.pitch + dy * 0.008));
+        if (!self._raf) {
+          self._raf = requestAnimationFrame(function () {
+            self._raf = null;
+            self.reproject();
+          });
+        }
+      };
+      var endDrag = function (ev) {
+        if (!drag) return;
+        var wasDrag = drag.moved > 4;
+        drag = null;
+        svg.style.cursor = "grab";
+        try { svg.releasePointerCapture(ev.pointerId); } catch (e) { /* already released */ }
+        // Swallow the click that follows a real drag, so letting go over a node does not
+        // also open it.
+        if (wasDrag) {
+          svg.addEventListener("click", function once(e2) {
+            e2.stopPropagation(); svg.removeEventListener("click", once, true);
+          }, true);
+        }
+      };
+      svg.onpointerup = endDrag;
+      svg.onpointercancel = endDrag;
+    }
+
     svg.onmousemove = function (ev) {
       var g = ev.target.closest ? ev.target.closest(".node") : null;
       var id = g ? g.getAttribute("data-id") : null;

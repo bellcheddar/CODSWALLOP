@@ -2340,6 +2340,9 @@
         map.median_tm + "), so distance is structural distance and the 0.5 contour is the " +
         "conventional same-fold boundary. Size is 1/resolution; colour is method; an amber " +
         "halo means ligand-bound." +
+        (map.three_d ? " <b>Drag to rotate:</b> the third axis is the next principal " +
+          "coordinate of the same matrix, so depth is structural distance like the other " +
+          "two, and a node further away is drawn fainter." : "") +
         (map.approximated
           ? " " + commas(map.approximated) + " of " + commas(map.nodes.length) +
             " entries use a construct that was not among the representatives and are placed " +

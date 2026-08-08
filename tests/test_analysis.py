@@ -581,3 +581,28 @@ def test_the_request_path_never_fetches_drug_enrichment():
         src = inspect.getsource(fn)
         assert "if not fetch_missing:" in src and "cache_get" in src, \
             f"{fn.__name__} must be able to answer from the cache alone"
+
+
+def test_the_third_map_axis_comes_from_the_matrix_already_shipped():
+    """Derived from the TM matrix the artefact already carries for the heatmap, rather than
+    stored: a new field would have meant a pipeline version bump and a full rebuild for a
+    twenty-line eigendecomposition of something already on hand."""
+    from codswallop.layout import third_axis
+    # Four points on a line: the third principal coordinate carries nothing, and inventing
+    # one from a non-positive eigenvalue would draw noise as structure.
+    flat = [[1.0, 0.9, 0.8, 0.7], [0.9, 1.0, 0.9, 0.8],
+            [0.8, 0.9, 1.0, 0.9], [0.7, 0.8, 0.9, 1.0]]
+    assert third_axis(flat) is None
+
+    # A tetrahedron is genuinely three-dimensional and must produce one.
+    tetra = [[1.0, 0.5, 0.5, 0.5], [0.5, 1.0, 0.5, 0.5],
+             [0.5, 0.5, 1.0, 0.5], [0.5, 0.5, 0.5, 1.0]]
+    zs = third_axis(tetra)
+    assert zs is not None and len(zs) == 4
+    assert max(abs(z) for z in zs) > 0, "a real third axis is not all zeros"
+
+
+def test_too_few_points_have_no_third_axis():
+    from codswallop.layout import third_axis
+    assert third_axis([[1.0, 0.5], [0.5, 1.0]]) is None
+    assert third_axis([]) is None

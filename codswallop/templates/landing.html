@@ -4,7 +4,18 @@
 {% block body %}
 <div class="drawer-front">
   <div class="drawer-face">
-    <span class="plate">Codswallop</span>
+    {# Generated with pyfiglet, font banner3, and escaped. banner3 is built entirely from
+       '#' and contains no underscores at all: a mono face whose underscore is narrower than
+       its advance leaves gaps between the glyph rows that no CSS can close, which is what
+       makes the underscore-heavy fonts unusable in a browser. Never hand-edit a glyph row;
+       regenerate it. #}
+    <pre class="banner" role="img" aria-label="CODSWALLOP"> ######   #######  ########   ######  ##      ##    ###    ##       ##        #######  ########
+##    ## ##     ## ##     ## ##    ## ##  ##  ##   ## ##   ##       ##       ##     ## ##     ##
+##       ##     ## ##     ## ##       ##  ##  ##  ##   ##  ##       ##       ##     ## ##     ##
+##       ##     ## ##     ##  ######  ##  ##  ## ##     ## ##       ##       ##     ## ########
+##       ##     ## ##     ##       ## ##  ##  ## ######### ##       ##       ##     ## ##
+##    ## ##     ## ##     ## ##    ## ##  ##  ## ##     ## ##       ##       ##     ## ##
+ ######   #######  ########   ######   ###  ###  ##     ## ######## ########  #######  ##</pre>
 
     <h1>The PDB, summarised&hellip;</h1>
 
@@ -48,12 +59,18 @@
     {% if recent %}
     <div class="recent">
       <h2>Recent searches</h2>
-      <ul>
+      <ul id="recentList">
         {% for r in recent %}
-        <li><a href="{{ url_for('family_page', slug=r.slug) }}">{{ r.name or r.slug }}
+        <li{% if loop.index > 20 %} class="extra" hidden{% endif %}><a
+          href="{{ url_for('family_page', slug=r.slug) }}">{{ r.name or r.slug }}
           <b>{{ r.n_entries }}</b></a></li>
         {% endfor %}
       </ul>
+      {% if recent|length > 20 %}
+      <button type="button" class="morebtn" id="showMore">
+        Show all {{ recent|length }}
+      </button>
+      {% endif %}
     </div>
     {% endif %}
   </div>
@@ -64,6 +81,16 @@
 <script>
   // The example chips fill the box rather than navigating, so the reader sees what kind of
   // thing they just asked for before it resolves.
+  var more = document.getElementById("showMore");
+  if (more) {
+    more.addEventListener("click", function () {
+      document.querySelectorAll("#recentList .extra").forEach(function (li) {
+        li.hidden = false;
+      });
+      more.remove();
+    });
+  }
+
   document.querySelectorAll(".hints .eg").forEach(function (b) {
     b.addEventListener("click", function () {
       var q = document.getElementById("q");
