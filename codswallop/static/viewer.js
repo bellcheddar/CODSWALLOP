@@ -138,6 +138,192 @@
     ];
   }
 
+  /* ------------------------------------------------------------------------------------
+     Superposing the AlphaFold model in the browser, when the pipeline has not done it.
+
+     The pipeline's TM-align transform is the better answer and is used whenever it exists.
+     But it only exists for a family a workstation has already embedded, and a reader who
+     assembles a new family on the live site has no artefact at all: the model was being
+     added in its own coordinate frame, a hundred angstroms from everything else, with a note
+     admitting it. Honest, and still the wrong picture.
+
+     This does not need TM-align. The AlphaFold model and the reference structure are the
+     *same protein*, so the residue numbering is a correspondence already: match CA atoms on
+     auth_seq_id and fit. No sequence alignment, no threading, nothing to get subtly wrong.
+     Kabsch on those pairs is the exact least-squares rotation.
+     ------------------------------------------------------------------------------------ */
+
+  /** The Structure itself, from whatever wrapper Mol* handed back.
+   *  `createStructure` resolves to a StateObjectSelector, not the data: reading `.units` off
+   *  it throws, which is how this first failed. */
+  function structData(x) {
+    if (!x) return null;
+    if (x.units) return x;
+    if (x.data && x.data.units) return x.data;
+    if (x.obj && x.obj.data && x.obj.data.units) return x.obj.data;
+    if (x.cell && x.cell.obj && x.cell.obj.data) return x.cell.obj.data;
+    return null;
+  }
+
+  /** CA coordinates by author residue number, for ONE chain of one structure.
+   *
+   *  One chain, not all of them. An asymmetric unit with several copies of the protein
+   *  numbers each copy identically, so keying on the residue number alone silently blends
+   *  coordinates from different molecules metres apart in the crystal: the fit then comes
+   *  out around 2.6 A everywhere, which is too good to look broken and far worse than the
+   *  sub-angstrom agreement the two structures actually have. */
+  function caByResidue(molstar, struct) {
+    var SE = molstar.lib.structure.StructureElement;
+    var P = molstar.lib.structure.StructureProperties;
+    var out = {};
+    var chain = null;
+    var loc = SE.Location.create(struct);
+    for (var i = 0; i < struct.units.length; i++) {
+      var unit = struct.units[i];
+      loc.unit = unit;
+      var els = unit.elements;
+      for (var j = 0; j < els.length; j++) {
+        loc.element = els[j];
+        if (P.atom.label_atom_id(loc) !== "CA") continue;
+        var asym = P.chain.auth_asym_id(loc);
+        if (chain === null) chain = asym;
+        if (asym !== chain) continue;
+        var seq = P.residue.auth_seq_id(loc);
+        if (out[seq] === undefined) {
+          out[seq] = [P.atom.x(loc), P.atom.y(loc), P.atom.z(loc)];
+        }
+      }
+    }
+    return out;
+  }
+
+  /** Least-squares rotation+translation taking `mob` onto `ref` (Kabsch). */
+  function kabsch(mob, ref) {
+    var n = mob.length;
+    if (n < 3) return null;
+    var cm = [0, 0, 0], cr = [0, 0, 0], i, k;
+    for (i = 0; i < n; i++) {
+      for (k = 0; k < 3; k++) { cm[k] += mob[i][k] / n; cr[k] += ref[i][k] / n; }
+    }
+    // Covariance of the centred clouds.
+    var H = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+    for (i = 0; i < n; i++) {
+      var a = [mob[i][0] - cm[0], mob[i][1] - cm[1], mob[i][2] - cm[2]];
+      var b = [ref[i][0] - cr[0], ref[i][1] - cr[1], ref[i][2] - cr[2]];
+      for (k = 0; k < 3; k++) {
+        for (var l = 0; l < 3; l++) H[k][l] += a[k] * b[l];
+      }
+    }
+    // Jacobi eigen-decomposition of HtH gives V; U follows from H·V·S^-1. Small and fixed
+    // size, so an iterative solver is cheaper to get right than a hand-rolled SVD.
+    var HtH = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+    for (k = 0; k < 3; k++) {
+      for (var m = 0; m < 3; m++) {
+        var s = 0;
+        for (i = 0; i < 3; i++) s += H[i][k] * H[i][m];
+        HtH[k][m] = s;
+      }
+    }
+    var ev = jacobi(HtH);
+    var V = ev.vectors, w = ev.values;
+    // Descending eigenvalue order, so the smallest singular value is the one we may flip.
+    var idx = [0, 1, 2].sort(function (x, y) { return w[y] - w[x]; });
+    var Vs = idx.map(function (c) { return [V[0][c], V[1][c], V[2][c]]; });
+    var sig = idx.map(function (c) { return Math.sqrt(Math.max(w[c], 0)); });
+    var Us = [];
+    for (var c = 0; c < 3; c++) {
+      if (sig[c] < 1e-6) { Us.push(null); continue; }
+      var u = [0, 0, 0];
+      for (k = 0; k < 3; k++) {
+        var t = 0;
+        for (m = 0; m < 3; m++) t += H[k][m] * Vs[c][m];
+        u[k] = t / sig[c];
+      }
+      Us.push(u);
+    }
+    if (!Us[0] || !Us[1]) return null;
+    if (!Us[2]) Us[2] = cross(Us[0], Us[1]);
+
+    // A reflection fits the points exactly as well as a rotation and is not one. The test
+    // is the determinant of the *product* U.V^T, not the handedness of U alone: checking
+    // only U passed a left-handed V straight through, and this returned det -1 with an RMSD
+    // of 21.8 A on a synthetic pair related by an exact 40-degree rotation.
+    // R = V.U^T, which maps the mobile cloud onto the reference. Building U.V^T instead
+    // gives the transpose, an equally valid-looking rotation in exactly the wrong direction.
+    function build(u) {
+      var M = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+      for (var cc = 0; cc < 3; cc++) {
+        for (var kk = 0; kk < 3; kk++) {
+          for (var mm = 0; mm < 3; mm++) M[kk][mm] += Vs[cc][kk] * u[cc][mm];
+        }
+      }
+      return M;
+    }
+    var R = build(Us);
+    if (det3(R) < 0) {
+      // Flip the column paired with the smallest singular value: it costs the least.
+      Us[2] = [-Us[2][0], -Us[2][1], -Us[2][2]];
+      R = build(Us);
+    }
+    var t2 = [0, 0, 0];
+    for (k = 0; k < 3; k++) {
+      t2[k] = cr[k] - (R[k][0] * cm[0] + R[k][1] * cm[1] + R[k][2] * cm[2]);
+    }
+    // Root-mean-square deviation after the fit, so the caller can report it rather than
+    // asserting that an alignment happened.
+    var sd = 0;
+    for (i = 0; i < n; i++) {
+      for (k = 0; k < 3; k++) {
+        var p = R[k][0] * mob[i][0] + R[k][1] * mob[i][1] + R[k][2] * mob[i][2] + t2[k];
+        sd += (p - ref[i][k]) * (p - ref[i][k]);
+      }
+    }
+    return { u: R, t: t2, rmsd: Math.sqrt(sd / n), n: n };
+  }
+
+  function dot(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+  function det3(m) {
+    return m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+         - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+         + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+  }
+  function cross(a, b) {
+    return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  }
+
+  /** Jacobi eigenvalue iteration for a symmetric 3x3. */
+  function jacobi(A) {
+    var a = [A[0].slice(), A[1].slice(), A[2].slice()];
+    var v = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    for (var sweep = 0; sweep < 50; sweep++) {
+      var off = Math.abs(a[0][1]) + Math.abs(a[0][2]) + Math.abs(a[1][2]);
+      if (off < 1e-12) break;
+      for (var p = 0; p < 2; p++) {
+        for (var q = p + 1; q < 3; q++) {
+          if (Math.abs(a[p][q]) < 1e-14) continue;
+          var theta = (a[q][q] - a[p][p]) / (2 * a[p][q]);
+          var t = Math.sign(theta) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
+          if (!isFinite(t)) t = 1;
+          var c = 1 / Math.sqrt(t * t + 1), s = t * c;
+          for (var k = 0; k < 3; k++) {
+            var akp = a[k][p], akq = a[k][q];
+            a[k][p] = c * akp - s * akq;
+            a[k][q] = s * akp + c * akq;
+          }
+          for (k = 0; k < 3; k++) {
+            var apk = a[p][k], aqk = a[q][k];
+            a[p][k] = c * apk - s * aqk;
+            a[q][k] = s * apk + c * aqk;
+            var vkp = v[k][p], vkq = v[k][q];
+            v[k][p] = c * vkp - s * vkq;
+            v[k][q] = s * vkp + c * vkq;
+          }
+        }
+      }
+    }
+    return { values: [a[0][0], a[1][1], a[2][2]], vectors: v };
+  }
+
   /**
    * Superpose several structures in one viewport.
    * `entries` is [{pdb_id, transform:{u,t}, colour}], the first being the reference.
@@ -223,6 +409,90 @@
    * artefact, or an accession the AFDB has no model for) it is still shown, unaligned, and
    * the caller says so rather than presenting two frames as an overlay.
    */
+  /** Fit a just-loaded structure onto the first one already in the viewport.
+   *  Returns the fit, or {failed: <reason>} so the caller can say why rather than shrug. */
+  function fitToReference(viewer, struct) {
+    try {
+      var molstar = molstarRef;
+      var hier = viewer.plugin.managers.structure.hierarchy.current.structures;
+      if (!hier || !hier.length) return { failed: "nothing else is loaded" };
+      // The reference is the first structure loaded, which `superpose` guarantees is the
+      // one every pipeline transform maps onto. Anything else would fit to an arbitrary
+      // member and quietly move the whole picture.
+      var refData = structData(hier[0]);
+      var mobData = structData(struct);
+      if (!refData) return { failed: "the reference structure has no data" };
+      if (!mobData) return { failed: "the model has no coordinates" };
+      if (refData === mobData) return { failed: "the model is the only structure loaded" };
+
+      var refCa = caByResidue(molstar, refData);
+      var mobCa = caByResidue(molstar, mobData);
+
+      // Residue numbering is a correspondence, but not always the same one. AlphaFold
+      // numbers the full canonical sequence; a deposited entry frequently numbers the mature
+      // protein, so the two are offset by the signal peptide, and pairing residue i with
+      // i+1 fits everything about 2.7 A out. That is a distinctive amount of wrong: too good
+      // to look broken, too poor to be the real agreement. The offset is found rather than
+      // assumed, over a window wide enough for a propeptide and narrow enough that it cannot
+      // wander onto a spurious register.
+      var best = null;
+      for (var off = -25; off <= 25; off++) {
+        var m2 = [], r2 = [];
+        for (var key in mobCa) {
+          var partner = refCa[String(Number(key) + off)];
+          if (partner) { m2.push(mobCa[key]); r2.push(partner); }
+        }
+        if (m2.length < 3) continue;
+        var f2 = kabsch(m2, r2);
+        // Most matches first, then best fit: an offset that pairs six residues perfectly is
+        // not better than one that pairs two hundred well.
+        if (!f2) continue;
+        if (!best || m2.length > best.n * 1.15 ||
+            (m2.length > best.n * 0.85 && f2.rmsd < best.rmsd)) {
+          best = { fit: f2, mob: m2, ref: r2, n: m2.length, rmsd: f2.rmsd, offset: off };
+        }
+      }
+      var mob = best ? best.mob : [], ref = best ? best.ref : [];
+      var offset = best ? best.offset : 0;
+      if (mob.length < 3) {
+        // Author numbering that does not follow UniProt: common for a construct numbered
+        // from 1, or a domain renumbered by the depositor. Named rather than shrugged at,
+        // because it is a fact about the entry and not a failure of the viewer.
+        return { failed: "only " + mob.length + " residue numbers are shared with " +
+                         Object.keys(refCa).length + " in the structure, so the entry is " +
+                         "not numbered on the canonical sequence" };
+      }
+      var fit = best.fit;
+      if (!fit) return { failed: "the matched atoms are collinear" };
+
+      // One round of outlier rejection. A straight fit over every matched residue is pulled
+      // about by the flexible termini and by whichever loops the model placed differently:
+      // carbonic anhydrase came out at 3.46 A that way, against a true core agreement well
+      // under 1 A. Trimming the pairs beyond twice the RMSD and refitting reports the core,
+      // which is both the honest number and the better picture.
+      var keepM = [], keepR = [], cut = Math.max(2 * fit.rmsd, 1.0), i;
+      for (i = 0; i < mob.length; i++) {
+        var p0 = fit.u, t0 = fit.t, m = mob[i], r = ref[i], d = 0;
+        for (var k = 0; k < 3; k++) {
+          var v = p0[k][0] * m[0] + p0[k][1] * m[1] + p0[k][2] * m[2] + t0[k] - r[k];
+          d += v * v;
+        }
+        if (Math.sqrt(d) <= cut) { keepM.push(m); keepR.push(r); }
+      }
+      if (keepM.length >= Math.max(3, 0.5 * mob.length)) {
+        var refined = kabsch(keepM, keepR);
+        if (refined) { refined.trimmed = mob.length - keepM.length; fit = refined; }
+      }
+      fit.source = "browser";
+      fit.offset = offset;
+      return fit;
+    } catch (e) {
+      // A geometry failure must not cost the reader the model itself: without a fit it
+      // lands in its own frame, which is what happened before this existed.
+      return { failed: "geometry error: " + e.message };
+    }
+  }
+
   function addAlphaFold(viewer, accession, af) {
     var plugin = viewer.plugin;
     // Ask the API for the file URL rather than constructing it. The model version is in the
@@ -258,11 +528,21 @@
       .then(function (struct) {
         // Put it on the reference before drawing it, so the camera reset below frames one
         // superposition rather than two objects a hundred angstroms apart.
-        var placed = (af && af.u && ST)
+        var fit = null;
+        if (af && af.u) {
+          fit = { u: af.u, t: af.t, source: "pipeline" };
+        } else {
+          // No artefact for this family, which is every family a reader assembles on the
+          // live site. Fit it here instead of dropping the model in its own frame.
+          fit = fitToReference(viewer, struct);
+        }
+        viewer._afFit = fit;
+        if (fit && fit.failed) fit = null;   // nothing to apply, but the reason survives
+        var placed = (fit && ST)
           ? plugin.build().to(struct).apply(ST.Model.TransformStructureConformation, {
               transform: {
                 name: "matrix",
-                params: { data: mat4(af.u, af.t), transpose: false },
+                params: { data: mat4(fit.u, fit.t), transpose: false },
               },
             }).commit()
           : Promise.resolve();

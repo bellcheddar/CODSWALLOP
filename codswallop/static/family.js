@@ -2092,12 +2092,30 @@
     }
     $("superposeNote").textContent = "Fetching the AlphaFold model for " + acc + "…";
     window.CodswallopViewer.addAlphaFold(currentViewer, acc, af).then(function () {
-      $("superposeNote").textContent = af && af.u
-        ? "AlphaFold model for " + acc + " superposed on " +
-          ((S.family.map || {}).reference || "the reference") + " (TM " + af.tm +
-          "), coloured by pLDDT."
-        : "AlphaFold model for " + acc + " added, coloured by pLDDT. No alignment was " +
-          "available, so it sits in its own frame rather than superposed.";
+      // Which fit was actually used, reported rather than assumed. The pipeline's TM-align
+      // transform is the better one; the browser fit is what a family with no artefact
+      // gets, and saying which is which is the difference between a measurement and a
+      // picture that merely looks aligned.
+      var fit = currentViewer._afFit;
+      var ref = (S.family.map || {}).reference || "the reference";
+      if (fit && fit.failed) {
+        $("superposeNote").textContent = "AlphaFold model for " + acc + " added, coloured " +
+          "by pLDDT, but not superposed: " + fit.failed + ".";
+      } else if (fit && fit.source === "pipeline") {
+        $("superposeNote").textContent = "AlphaFold model for " + acc + " superposed on " +
+          ref + " (TM " + af.tm + "), coloured by pLDDT.";
+      } else if (fit) {
+        $("superposeNote").textContent = "AlphaFold model for " + acc +
+          " superposed in the browser on " + (ref !== "the reference" ? ref : "the loaded structure") +
+          ": least-squares fit over " + fit.n + " C\u03B1 atoms, RMSD " +
+          fit.rmsd.toFixed(2) + " \u00C5" +
+          (fit.trimmed ? " (" + fit.trimmed + " outlying residues excluded)" : "") +
+          ". Coloured by pLDDT. This family has no structural embedding yet, so the fit is " +
+          "against one structure rather than the whole family.";
+      } else {
+        $("superposeNote").textContent = "AlphaFold model for " + acc + " added, coloured " +
+          "by pLDDT. Nothing could be matched to fit it to, so it sits in its own frame.";
+      }
     }).catch(function (err) {
       $("superposeNote").textContent = "No AlphaFold model for " + acc + " (" + err.message + ").";
     });
