@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS entry (
     assembly_count INTEGER,
     ligands        TEXT,                   -- JSON [{id, name, formula}]
     crystal        TEXT,                   -- JSON {method, ph, temp_k, details}
+    assembly       TEXT,                   -- JSON {count, details, provenance, ambiguous, ...}
     validation     TEXT,                   -- JSON {clashscore, rama, rota, rsrz, ...}
     has_sf         INTEGER,                -- structure factors released?
     citation       TEXT,                   -- JSON {title, journal, year, doi, authors, ...}
@@ -156,6 +157,7 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("entity", "query_end", "INTEGER"),
     ("entity", "uniprot_ids", "TEXT"),
     ("entry", "crystal", "TEXT"),
+    ("entry", "assembly", "TEXT"),
     ("entry", "validation", "TEXT"),
     ("entry", "has_sf", "INTEGER"),
 ]
@@ -280,10 +282,11 @@ def save_family(fam: dict, entries: list[dict], entities: list[dict]) -> None:
         conn.executemany(
             "INSERT INTO entry(slug, pdb_id, title, method, resolution, r_work, r_free, "
             "  space_group, cell, deposit_date, release_date, chain_count, entity_count, "
-            "  assembly_count, ligands, citation, crystal, validation, has_sf) "
+            "  assembly_count, ligands, citation, crystal, validation, has_sf, assembly) "
             "VALUES (:slug, :pdb_id, :title, :method, :resolution, :r_work, :r_free, "
             "  :space_group, :cell, :deposit_date, :release_date, :chain_count, :entity_count, "
-            "  :assembly_count, :ligands, :citation, :crystal, :validation, :has_sf)",
+            "  :assembly_count, :ligands, :citation, :crystal, :validation, :has_sf, "
+            "  :assembly)",
             [
                 {
                     "slug": slug, "pdb_id": e["pdb_id"], "title": e.get("title"),
@@ -297,6 +300,7 @@ def save_family(fam: dict, entries: list[dict], entities: list[dict]) -> None:
                     "ligands": json.dumps(e.get("ligands") or []),
                     "citation": json.dumps(e.get("citation")) if e.get("citation") else None,
                     "crystal": json.dumps(e.get("crystal")) if e.get("crystal") else None,
+                    "assembly": json.dumps(e.get("assembly")) if e.get("assembly") else None,
                     "validation": json.dumps(e.get("validation")) if e.get("validation") else None,
                     "has_sf": 1 if e.get("has_sf") else 0,
                 }
@@ -347,6 +351,7 @@ def load_family(slug: str) -> Optional[dict]:
         e["ligands"] = json.loads(e["ligands"] or "[]")
         e["citation"] = json.loads(e["citation"]) if e["citation"] else None
         e["crystal"] = json.loads(e["crystal"]) if e.get("crystal") else None
+        e["assembly"] = json.loads(e["assembly"]) if e.get("assembly") else None
         e["validation"] = json.loads(e["validation"]) if e.get("validation") else None
         e["has_sf"] = bool(e.get("has_sf"))
         entries.append(e)

@@ -1427,6 +1427,81 @@
     URL.revokeObjectURL(a.href);
   }
 
+  /* ---- assembly and oligomeric state ------------------------------------------------
+     The family-level question, which a single entry page cannot answer: has a protein
+     deposited 1,686 times ever been seen as anything other than the state everyone quotes?
+     Lysozyme is 90.7 % monomeric, and the 4.3 % dimeric and 3.8 % trimeric entries are
+     exactly the ones worth a look. */
+  function renderAssembly() {
+    var a = S.family.assemblies || { n: 0, states: [] };
+    if (!a.n) {
+      $("asmSub").textContent = "no assembly annotation for this family yet";
+      $("asmStates").innerHTML = '<p class="empty">The archive records a biological ' +
+        "assembly for almost every entry, so this is a sign the family predates the " +
+        "annotation being collected rather than a property of the protein.</p>";
+      $("asmProvenance").innerHTML = "";
+      $("asmAmbiguous").innerHTML = "";
+      return;
+    }
+    var top = a.states[0];
+    $("asmSub").textContent = commas(a.n) + " entries \u00b7 " +
+      (top ? top.fraction.toFixed(1) + "% " + (top.details || (top.count + "-mer")) : "");
+
+    // The distribution, one row per state, ordered by how many entries carry it so the
+    // consensus leads and the exceptions sit under it where they can be seen.
+    var max = a.states.length ? a.states[0].entries : 1;
+    $("asmStates").innerHTML =
+      '<div class="tablewrap"><table class="ctable"><thead><tr>' +
+      "<th>Oligomeric state</th><th>Chains</th><th>Entries</th><th>Share</th><th>&nbsp;</th>" +
+      "</tr></thead><tbody>" +
+      a.states.map(function (s) {
+        return "<tr><td><b>" + esc(s.details || (s.count + "-mer")) + "</b></td>" +
+          '<td class="n">' + s.count + "</td>" +
+          '<td class="n">' + commas(s.entries) + "</td>" +
+          '<td class="n">' + s.fraction.toFixed(1) + "%</td>" +
+          '<td><span class="asmbar"><i style="width:' +
+          Math.max(2, Math.round(100 * s.entries / max)) + '%"></i></span></td></tr>';
+      }).join("") + "</tbody></table></div>";
+
+    // Provenance as three counts rather than an agreement rate. See build_assemblies:
+    // author-defined does not mean the software disagreed.
+    var p = a.provenance || {};
+    var iface = a.interfaces;
+    $("asmProvenance").innerHTML =
+      '<p class="caveat"><b>Who says so.</b> ' +
+      "<b>" + commas(p.both || 0) + "</b> entries have the depositor's assembly corroborated " +
+      "by PISA, <b>" + commas(p.author || 0) + "</b> carry the depositor's word alone, and " +
+      "<b>" + commas(p.software || 0) + "</b> were assigned by PISA where the depositor gave " +
+      "none. The middle figure is not a disagreement: it means PISA returned nothing or never " +
+      "ran, and reading it as conflict would invent one on almost half of some families." +
+      (iface
+        ? " Buried interface area across " + commas(iface.n) + " entries has a median of " +
+          commas(iface.median_area) + "&nbsp;\u00c5\u00b2 (quartiles " + commas(iface.q1_area) +
+          " to " + commas(iface.q3_area) + "), over a median of " + iface.median_residues +
+          " interface residues. Quartiles rather than a range, because one large assembly puts " +
+          "the maximum three orders of magnitude above the median."
+        : "") + "</p>";
+
+    // The genuine ambiguity: the archive holds more than one answer for these entries.
+    if (!a.n_ambiguous) {
+      $("asmAmbiguous").innerHTML = '<p class="caveat">Every entry here that carries more ' +
+        "than one biological assembly agrees with itself about how many chains are in it.</p>";
+      return;
+    }
+    $("asmAmbiguous").innerHTML =
+      '<div class="csect"><h3>Entries the archive is undecided about ' +
+      '<span class="n">' + commas(a.n_ambiguous) + "</span></h3>" +
+      '<p class="caveat">These carry more than one biological assembly with different chain ' +
+      "counts, so there is no single answer to quote. Worth knowing before building on any " +
+      "one of them.</p><p class=\"asmchips\">" +
+      a.ambiguous.map(function (r) {
+        return '<a class="asmchip" target="_blank" rel="noopener noreferrer" href="' +
+          "https://www.rcsb.org/structure/" + encodeURIComponent(r.pdb_id) + '">' +
+          esc(r.pdb_id) + ' <span class="n">' + r.count + " vs " +
+          esc((r.alternatives || []).join(", ")) + "</span></a> ";
+      }).join("") + "</p></div>";
+  }
+
   function renderQuality() {
     var q = S.family.quality || { n: 0, rows: [] };
     if (!q.n) {
@@ -1941,6 +2016,7 @@
     renderLigands();
     renderCrystals();
     renderQuality();
+    renderAssembly();
     renderKnownBlocks();
 
     recompute();

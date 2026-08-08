@@ -28,7 +28,7 @@ _PAGE = 1000
 # consumes it fails silently: adding the alignment spans without bumping this left the
 # "residues in no construct" figure reading 100 % and the fusion count reading 0, both of
 # which look like plausible answers rather than missing inputs.
-PARSE_VERSION = 5
+PARSE_VERSION = 6
 
 
 def _paged_search(query: dict, return_type: str, limit: int, verbose: bool = False) -> tuple[list[dict], int]:
@@ -226,6 +226,16 @@ query($ids: [String!]!) {
       symmetry { space_group_name_H_M }
       cell { length_a length_b length_c angle_alpha angle_beta angle_gamma }
       rcsb_entry_container_identifiers { assembly_ids }
+      assemblies {
+        pdbx_struct_assembly {
+          id oligomeric_count oligomeric_details rcsb_details method_details
+        }
+        rcsb_assembly_info {
+          polymer_entity_instance_count
+          total_assembly_buried_surface_area
+          total_number_interface_residues
+        }
+      }
       exptl_crystal_grow { method pH temp pdbx_details }
       pdbx_vrpt_summary_geometry {
         clashscore percent_ramachandran_outliers percent_rotamer_outliers
@@ -321,6 +331,58 @@ def _crystal(grow) -> Optional[dict]:
         # silently been through a unit conversion is how two of them end up disagreeing.
         "temp_k": float(temp) if temp is not None else None,
         "details": g.get("pdbx_details"),
+    }
+
+
+def _assembly(entry: dict) -> Optional[dict]:
+    """The biological assembly as deposited, and who says so.
+
+    Provenance is the useful part and it is easy to overstate. RCSB reports one of three
+    values, and only the first is evidence of agreement:
+
+      * `author_and_software_defined_assembly`  the depositor said so and PISA concurs
+      * `author_defined_assembly`               the depositor said so, and that is all it says
+      * `software_defined_assembly`             PISA said so, the depositor did not
+
+    `author_defined_assembly` is **not** a disagreement. It means PISA either did not run or
+    returned nothing, and reading it as "the software disagreed" would invent a conflict on
+    68 of 150 thrombin entries. A real disagreement needs an entry to carry more than one
+    assembly with different oligomeric counts, which on that same sample is 4 entries.
+
+    Assembly 1 is the one the archive treats as biologically relevant and the one everybody
+    quotes, so it leads; the rest are kept only to detect the ambiguity above.
+    """
+    raw = [a for a in (entry.get("assemblies") or []) if a]
+    if not raw:
+        return None
+    rows = []
+    for a in raw:
+        sa = a.get("pdbx_struct_assembly") or {}
+        ai = a.get("rcsb_assembly_info") or {}
+        rows.append({
+            "id": sa.get("id"),
+            "count": sa.get("oligomeric_count"),
+            "details": sa.get("oligomeric_details"),
+            "provenance": sa.get("rcsb_details"),
+            "method": sa.get("method_details"),
+            "chains": ai.get("polymer_entity_instance_count"),
+            "buried_area": ai.get("total_assembly_buried_surface_area"),
+            "interface_residues": ai.get("total_number_interface_residues"),
+        })
+    rows.sort(key=lambda r: (r["id"] != "1", str(r["id"])))
+    first_row = rows[0]
+    counts = {r["count"] for r in rows if r["count"] is not None}
+    return {
+        "count": first_row["count"],
+        "details": first_row["details"],
+        "provenance": first_row["provenance"],
+        "method": first_row["method"],
+        "buried_area": first_row["buried_area"],
+        "interface_residues": first_row["interface_residues"],
+        "n_assemblies": len(rows),
+        # Genuine ambiguity: the archive holds more than one answer for this entry.
+        "ambiguous": len(counts) > 1,
+        "alternatives": [r["count"] for r in rows[1:]] if len(counts) > 1 else [],
     }
 
 
@@ -454,6 +516,7 @@ def parse_entity(raw: dict) -> dict:
             "ligands": ligands,
             "citation": citation,
             "crystal": _crystal(entry.get("exptl_crystal_grow")),
+            "assembly": _assembly(entry),
             "validation": _validation(entry),
             "has_sf": (entry.get("rcsb_accession_info") or {}).get(
                 "has_released_experimental_data") == "Y",

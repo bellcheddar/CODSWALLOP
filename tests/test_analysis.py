@@ -403,3 +403,73 @@ def test_representative_accession_agrees_with_the_construct_table():
     block = src[src.index(marker):src.index(marker) + 400]
     assert 'c.get("uniprot")' in block, \
         "representatives must carry the construct's accession, not the member's first xref"
+
+
+# ---- assembly and oligomeric state ---------------------------------------------------
+def _entry(pdb, count, details, prov, alts=None, area=None, ifres=None):
+    return {"pdb_id": pdb, "assembly": {
+        "count": count, "details": details, "provenance": prov, "method": "PISA",
+        "buried_area": area, "interface_residues": ifres,
+        "n_assemblies": 1 + len(alts or []), "ambiguous": bool(alts),
+        "alternatives": alts or []}}
+
+
+def test_oligomeric_states_group_on_the_count_not_the_wording():
+    """`oligomeric_details` is free text whose capitalisation is not consistent across the
+    archive: lysozyme reported "trimeric" on 64 entries and "Trimeric" on 3, which listed
+    one oligomeric state twice in the same table as though they were different."""
+    from codswallop.family import build_assemblies
+    a = build_assemblies([_entry("1AAA", 3, "trimeric", "author_defined_assembly"),
+                          _entry("2BBB", 3, "Trimeric", "author_defined_assembly"),
+                          _entry("3CCC", 3, "  TRIMERIC ", "author_defined_assembly")])
+    assert [s["count"] for s in a["states"]] == [3]
+    assert a["states"][0]["entries"] == 3
+    assert a["states"][0]["details"] == "trimeric"
+
+
+def test_provenance_is_three_counts_and_never_an_agreement_rate():
+    """author_defined means PISA returned nothing or never ran, not that it disagreed.
+    Scoring it as disagreement would invent a conflict on 758 of 1,686 lysozyme entries."""
+    from codswallop.family import build_assemblies
+    a = build_assemblies([
+        _entry("1AAA", 1, "monomeric", "author_and_software_defined_assembly"),
+        _entry("2BBB", 1, "monomeric", "author_defined_assembly"),
+        _entry("3CCC", 2, "dimeric", "software_defined_assembly"),
+    ])
+    assert a["provenance"] == {"both": 1, "author": 1, "software": 1}
+    assert "disagree" not in str(a).lower()
+
+
+def test_only_an_entry_that_contradicts_itself_counts_as_ambiguous():
+    from codswallop.family import build_assemblies
+    a = build_assemblies([
+        _entry("1AAA", 1, "monomeric", "author_defined_assembly"),
+        _entry("2BBB", 2, "dimeric", "author_defined_assembly", alts=[1]),
+    ])
+    assert a["n_ambiguous"] == 1
+    assert a["ambiguous"][0]["pdb_id"] == "2BBB"
+    assert a["ambiguous"][0]["alternatives"] == [1]
+
+
+def test_interface_area_is_reported_as_quartiles_not_a_range():
+    """Buried area scales with the whole assembly, so one 60-mer sets a maximum three orders
+    of magnitude above the median (lysozyme: median 1,476, maximum 615,514) and a min-to-max
+    range describes that one entry rather than the family."""
+    from codswallop.family import build_assemblies
+    rows = [_entry(f"{i}XXX", 2, "dimeric", "author_defined_assembly", area=1000.0 + i,
+                   ifres=50) for i in range(10)]
+    rows.append(_entry("BIGX", 60, "60-meric", "author_defined_assembly",
+                       area=615514.0, ifres=9000))
+    a = build_assemblies(rows)
+    assert a["interfaces"]["median_area"] < 2000, "one huge assembly must not move the median"
+    assert "max_area" not in a["interfaces"]
+    assert a["interfaces"]["q3_area"] < 2000
+
+
+def test_a_family_with_no_assembly_annotation_returns_a_complete_shape():
+    """The empty path must carry every key the populated one does, or the panel raises on
+    the family it was meant to degrade gracefully for."""
+    from codswallop.family import build_assemblies
+    empty = build_assemblies([{"pdb_id": "1AAA"}])
+    full = build_assemblies([_entry("1AAA", 1, "monomeric", "author_defined_assembly")])
+    assert set(empty) == set(full)

@@ -184,6 +184,13 @@ def decorate(fam: dict) -> dict:
                                 {"n": 0, "n_parsed": 0})
     fam["quality"] = _optional("quality", lambda: build_quality(fam["entries"]),
                                {"n": 0, "rows": []})
+    # Here, with the other entry-level panels, and not further down beside the orthologue
+    # matrix: `_compact` pops `fam["entries"]` to shrink the payload, so anything reading it
+    # after that point silently receives an empty list and reports a family with no
+    # assemblies at all. That is the fourth bug in this function to come from its order.
+    fam["assemblies"] = _optional("assemblies", lambda: build_assemblies(fam["entries"]),
+                                  {"n": 0, "states": [], "provenance": {}, "ambiguous": [],
+                                   "n_ambiguous": 0, "interfaces": None})
     fam["ligands"] = _optional("ligands", lambda: ligand_engine.summarise(fam["entries"]),
                                {"components": [], "by_class": {}, "n": 0})
 
@@ -757,6 +764,86 @@ def build_domains(fam: dict, members: list[dict]) -> dict:
     sources = sorted({d["source"] for d in out})
     return {"sources": sources, "domains": out, "support": support,
             "dropped": dropped}
+
+
+def build_assemblies(entries: list[dict]) -> dict:
+    """What oligomeric state this family crystallises in, and how well attested it is.
+
+    The family-level question is not "what is the assembly of 4HHB", which the RCSB already
+    answers on its own page, but whether a protein deposited 1,400 times has ever been seen
+    as anything other than the state everyone reports.
+
+    Provenance is reported as three separate counts and not as an agreement rate, because
+    `author_defined_assembly` says only that the depositor stated one: PISA may have returned
+    nothing or never run. Treating it as disagreement would invent a conflict on 68 of 150
+    thrombin entries. The ambiguity that is real, an entry whose own assemblies disagree
+    about the count, is 4 of that 150, and it is reported as a list rather than a rate.
+    """
+    rows = [e["assembly"] for e in entries if e.get("assembly")]
+    if not rows:
+        return {"n": 0, "states": [], "provenance": {}, "ambiguous": [],
+                "n_ambiguous": 0, "interfaces": None}
+
+    # Keyed on the chain count, never on the wording. `oligomeric_details` is free text whose
+    # capitalisation is not consistent across the archive, so lysozyme reported "trimeric" on
+    # 64 entries and "Trimeric" on 3 as two different oligomeric states sitting in the same
+    # table. The count is the fact; the wording is a label for it.
+    states: Counter = Counter()
+    labels: dict[int, Counter] = {}
+    for a in rows:
+        n = a.get("count")
+        if not n:
+            continue
+        states[n] += 1
+        if a.get("details"):
+            labels.setdefault(n, Counter())[a["details"].strip().lower()] += 1
+
+    prov = Counter(a.get("provenance") for a in rows if a.get("provenance"))
+
+    ambiguous = [
+        {"pdb_id": e["pdb_id"], "count": e["assembly"]["count"],
+         "alternatives": e["assembly"].get("alternatives") or []}
+        for e in entries
+        if e.get("assembly") and e["assembly"].get("ambiguous")
+    ]
+    ambiguous.sort(key=lambda r: r["pdb_id"])
+
+    areas = sorted(a["buried_area"] for a in rows if a.get("buried_area"))
+    ifres = sorted(a["interface_residues"] for a in rows if a.get("interface_residues"))
+    interfaces = None
+    if areas:
+        # Quartiles rather than min and max. Buried area scales with the whole assembly, so
+        # one 60-mer sets a maximum three orders of magnitude above the median (lysozyme:
+        # median 1,476 A^2, maximum 615,514) and a min-to-max range says nothing about the
+        # family it is supposed to describe.
+        def q(xs, f):
+            return round(xs[min(int(f * len(xs)), len(xs) - 1)], 1)
+        interfaces = {
+            "n": len(areas),
+            "median_area": q(areas, 0.5),
+            "q1_area": q(areas, 0.25),
+            "q3_area": q(areas, 0.75),
+            "median_residues": ifres[len(ifres) // 2] if ifres else None,
+        }
+
+    total = sum(states.values())
+    return {
+        "n": len(rows),
+        "states": [
+            {"count": c, "entries": n,
+             "details": labels[c].most_common(1)[0][0] if labels.get(c) else f"{c}-meric",
+             "fraction": round(100.0 * n / total, 1) if total else 0.0}
+            for c, n in states.most_common(12)
+        ],
+        "provenance": {
+            "both": prov.get("author_and_software_defined_assembly", 0),
+            "author": prov.get("author_defined_assembly", 0),
+            "software": prov.get("software_defined_assembly", 0),
+        },
+        "ambiguous": ambiguous[:40],
+        "n_ambiguous": len(ambiguous),
+        "interfaces": interfaces,
+    }
 
 
 def build_orthologue_matrix(members: list[dict], seed_length: int) -> list[dict]:

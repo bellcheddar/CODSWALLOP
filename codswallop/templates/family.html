@@ -336,6 +336,21 @@
       </div>
     </section>
 
+    {# ---- assembly and oligomeric state ------------------------------------------- #}
+    <section id="sec-assembly" class="section" role="tabpanel" hidden>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>What it assembles into</h2>
+          <span class="sub" id="asmSub"></span>
+        </div>
+        <div class="panel-body">
+          <div id="asmStates"></div>
+          <div id="asmProvenance"></div>
+          <div id="asmAmbiguous"></div>
+        </div>
+      </div>
+    </section>
+
     {# ============================ PHASES STILL TO LAND ============================= #}
     {% for s in sections if s.phase > 1 and not s.live %}
     <section id="sec-{{ s.id }}" class="section" role="tabpanel" hidden>

@@ -886,3 +886,23 @@ footer.site .sources { margin-top: 7px; }
 .ccd.sm { width: 34px; height: 34px; margin-right: 5px; }
 .ctable td.dep { width: 60px; padding-right: 8px; }
 .liglist .lig { display: inline-flex; align-items: center; }
+
+/* Assembly panel: the share bar beside each oligomeric state. Reads as a distribution at a
+   glance, which is the whole point of asking the question family-wide rather than per entry. */
+.asmbar {
+  display: inline-block; width: 120px; height: 6px; vertical-align: middle;
+  background: var(--surface-2); border-radius: 3px; overflow: hidden;
+}
+.asmbar i { display: block; height: 100%; background: var(--brass); border-radius: 3px; }
+@media (max-width: 640px) { .asmbar { width: 64px; } }
+
+/* The entries the archive is undecided about. Chips rather than a run of links, because
+   twenty PDB IDs with their chain counts inline read as one paragraph of noise otherwise. */
+.asmchips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; }
+.asmchip {
+  font-family: var(--mono); font-size: 11px; padding: 3px 8px; border-radius: 4px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--dim);
+  text-decoration: none; white-space: nowrap;
+}
+.asmchip:hover { border-color: var(--oxide); color: var(--text); text-decoration: none; }
+.asmchip .n { color: var(--oxide); margin-left: 4px; }

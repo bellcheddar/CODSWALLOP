@@ -39,6 +39,7 @@ SECTIONS = [
         {"id": "contacts", "label": "Contacts", "phase": 3, "live": True},
         {"id": "crystals", "label": "Crystals", "phase": 3, "live": True},
         {"id": "quality", "label": "Quality", "phase": 3, "live": True},
+    {"id": "assembly", "label": "Assembly", "phase": 4, "live": True},
     {
         "id": "topology", "label": "Topology", "phase": 4,
         "blurb": "Fold cartoons generated in-house, plus everything needed to hand the "
@@ -46,10 +47,7 @@ SECTIONS = [
         "bullets": [
             "Topology diagrams from DSSP as custom SVG: strands as arrows, helices as "
             "cylinders, connectivity preserved (built in-house, not scraped from PDBsum)",
-            "Assembly and oligomeric state: author-assigned versus PISA-predicted, "
-            "with disagreements flagged",
             "<b>Dossier export</b>: one-click self-contained HTML and PDF family report",
-            "Shareable permalinks with the filter state encoded in the URL",
         ],
     },
 ]
