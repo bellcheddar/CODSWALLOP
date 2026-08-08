@@ -309,10 +309,11 @@
       svg.style.cursor = "grab";
       svg.onpointerdown = function (ev) {
         if (ev.button !== 0) return;
-        // Stops the native drag-select that would otherwise begin the moment the pointer
-        // moves. The CSS above covers the field; this covers the gesture itself, including
-        // the ghost-image drag a browser starts on an SVG child.
-        ev.preventDefault();
+        // NOT preventDefault() here. Cancelling pointerdown suppresses the compatibility
+        // mouse events the browser would otherwise synthesise, and `click` is one of them,
+        // so it stopped every node from being openable while leaving hover working: the map
+        // looked half alive. Selection is refused below on the events that actually start
+        // one, which costs nothing else.
         drag = { x: ev.clientX, y: ev.clientY, moved: 0, id: ev.pointerId,
                  yaw: self.yaw || 0, pitch: self.pitch || 0 };
         // Capture keeps the drag alive when the cursor leaves the panel mid-turn. It throws
@@ -345,13 +346,23 @@
         // Swallow the click that follows a real drag, so letting go over a node does not
         // also open it.
         if (wasDrag) {
-          svg.addEventListener("click", function once(e2) {
-            e2.stopPropagation(); svg.removeEventListener("click", once, true);
-          }, true);
+          // Swallow only the click that this drag is about to synthesise. Removed on a
+          // timer as well as on use: a drag that ends outside the panel never produces one,
+          // and the listener would otherwise sit there and eat the next real click.
+          var once = function (e2) {
+            e2.stopPropagation();
+            svg.removeEventListener("click", once, true);
+          };
+          svg.addEventListener("click", once, true);
+          setTimeout(function () { svg.removeEventListener("click", once, true); }, 350);
         }
       };
       svg.onpointerup = endDrag;
       svg.onpointercancel = endDrag;
+      // The two events that begin a selection or a native image drag. Refusing these stops
+      // the blue smear across the field without touching the click that follows a tap.
+      svg.addEventListener("selectstart", function (ev) { ev.preventDefault(); });
+      svg.addEventListener("dragstart", function (ev) { ev.preventDefault(); });
     }
 
     svg.onmousemove = function (ev) {
