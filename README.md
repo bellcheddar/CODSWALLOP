@@ -2,7 +2,7 @@
 
 > **The PDB, summarised: every entry for a protein family, cross-referenced in ninety seconds.**
 
-![python](https://img.shields.io/badge/python-3.11-3776AB?logo=python&logoColor=white) ![flask](https://img.shields.io/badge/flask-3.0-000000?logo=flask&logoColor=white) ![phase](https://img.shields.io/badge/phase-2%20of%204-fcb900) ![licence](https://img.shields.io/badge/licence-MIT-467FF7) ![author](https://img.shields.io/badge/author-Marc%20C.%20Deller%2C%20D.Phil.-1C244B)
+![python](https://img.shields.io/badge/python-3.11-3776AB?logo=python&logoColor=white) ![flask](https://img.shields.io/badge/flask-3.0-000000?logo=flask&logoColor=white) ![phase](https://img.shields.io/badge/phase-4%20of%204-fcb900) ![licence](https://img.shields.io/badge/licence-MIT-467FF7) ![author](https://img.shields.io/badge/author-Marc%20C.%20Deller%2C%20D.Phil.-1C244B)
 
 <table>
 <tr>
@@ -34,7 +34,7 @@ Live at **[codswallop.mdeller.com](https://codswallop.mdeller.com)**.
 | 4 | **Coverage census** | Which residues has nobody ever seen? A family-wide map answering a construct-design question in one glance | 1 (constructs), 2 (density) |
 | 5 | **Interaction fingerprints** | PLIP run family-wide, so binding-site contacts are comparable across entries rather than one-off | 3 |
 
-## ✨ Features (phases 1 and 2, live)
+## ✨ Features (phases 1 to 3 live, phase 4 landing)
 
 - **Ask for anything.** A PDB ID, a PDB entity id, a UniProt accession, a gene name, a Pfam or InterPro accession, a raw sequence (FASTA or bare), or just what the protein is called. Anything genuinely ambiguous returns a disambiguation card rather than a guess: `4HHB` asks whether you meant the alpha or beta globin, `LYZ` asks which of twelve organisms.
 - **One definition of a family.** Whatever you type is resolved to a **seed sequence**, and membership is every PDB polymer entity above a percent-identity threshold to that seed. Every member therefore carries a real identity number to the same reference, so the threshold slider means something exact rather than "whatever the annotation happened to say".
@@ -77,7 +77,7 @@ Phases 2 to 4 add the RCSB 1D Coordinates, Alignment and file services, the PDBe
 ./.venv/bin/python -m pytest
 ```
 
-65 tests, none of which touch the network. They are written against the bugs that actually shipped rather than for coverage: a fusion partner being shredded by the aligner, a chimera diffed against the wrong reference, `Bis-Tris` being tallied as `Tris`, a saturating "never" statistic, a cached `None` being refetched forever, and a beacon that no page requested.
+94 tests, none of which touch the network. They are written against the bugs that actually shipped rather than for coverage: a fusion partner being shredded by the aligner, a chimera diffed against the wrong reference, `Bis-Tris` being tallied as `Tris`, a saturating "never" statistic, a cached `None` being refetched forever, a beacon that no page requested, a family outvoting its own subject, and a disulphide bond expanded into 122 of them.
 
 ## 🔧 Installation
 
