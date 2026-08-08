@@ -22,15 +22,76 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from codswallop import artefacts, contacts, db, embed, family, resolve  # noqa: E402
 
-TARGETS = [
-    ("A0A0K8P6T7", "IsPETase"), ("A0A0K8P8E7", "MHETase"), ("P23458", "JAK1"),
+# Every family worth having warm before anyone asks for it.
+#
+# Two kinds, and the first kind is not optional. The landing page offers five example
+# buttons, and a reader who presses one and lands on a placeholder map has been invited down
+# a path the app did not prepare: 4HHB is on the front page, and going in that way built
+# `hemoglobin-subunit-alpha-4hhb-1`, a different family from the pre-warmed
+# `hemoglobin-subunit-alpha-p69905`, because a slug derives from its seed. Same protein, two
+# addresses, artefacts on only one.
+#
+# The ambiguous examples are listed by the pick a reader would choose, not by the string on
+# the button: "4HHB" and "TEM-1 beta-lactamase" both answer with a disambiguation card, and
+# pre-warming the question warms nothing.
+# Keyed by the exact text on the button, so a test can check the template against it and
+# fail the moment an example is added to the front page without being warmed here.
+EXAMPLE_SEEDS = {
+    "1AKI": ["1AKI_1"],
+    "P00918": ["P00918"],
+    "PF00062": ["135L_1"],
+    # Both of these answer with a disambiguation card rather than a family, so the seed is
+    # the pick a reader would make. Warming the question warms nothing.
+    "TEM-1 beta-lactamase": ["P62593"],
+    "4HHB": ["4HHB_1", "4HHB_2"],
+}
+
+LANDING_EXAMPLES = [(seed, f"{label} (example)")
+                    for label, seeds in EXAMPLE_SEEDS.items() for seed in seeds]
+
+TARGETS = LANDING_EXAMPLES + [
+    # -- Marc's own work, and the PET-degrading enzymes --------------------------------
+    ("A0A0K8P6T7", "IsPETase"), ("A0A0K8P8E7", "MHETase"),
+
+    # -- classic teaching structures: the ones people arrive already knowing -----------
     ("P00374", "DHFR"), ("P61823", "RNase A"), ("P02185", "Myoglobin"),
     ("P69905", "Haemoglobin alpha"), ("P02794", "Ferritin H"), ("P68431", "Histone H3.1"),
-    ("P42212", "GFP"), ("P24941", "CDK2"), ("P02945", "Bacteriorhodopsin"),
-    ("P29274", "A2A receptor"), ("P08100", "Rhodopsin"), ("P07900", "HSP90-alpha"),
-    ("P56817", "BACE1"), ("P03372", "ER-alpha"), ("P00734", "Thrombin"),
-    ("P15056", "BRAF"), ("P22303", "AChE"), ("P09874", "PARP1"), ("P00519", "ABL1"),
+    ("P42212", "GFP"), ("P00760", "Trypsin"), ("P01308", "Insulin"),
+    ("P0CG48", "Ubiquitin"), ("P0DP23", "Calmodulin"), ("P22629", "Streptavidin"),
+    ("P02768", "Serum albumin"), ("P68133", "Actin"), ("Q71U36", "Tubulin alpha"),
+
+    # -- kinases: the most-prosecuted target class there is -----------------------------
+    ("P24941", "CDK2"), ("P23458", "JAK1"), ("P15056", "BRAF"), ("P00519", "ABL1"),
+    ("P00533", "EGFR"), ("Q16539", "p38 MAPK"), ("P31749", "AKT1"), ("P11362", "FGFR1"),
+    ("P04629", "TrkA"), ("Q06124", "SHP2"),
+
+    # -- membrane proteins and receptors: the hard ones, and the pretty ones ------------
+    ("P02945", "Bacteriorhodopsin"), ("P29274", "A2A receptor"), ("P08100", "Rhodopsin"),
+    ("P07550", "beta-2 adrenergic"), ("B4ZY91", "GLP-1R"), ("P13569", "CFTR"),
+    ("P42345", "mTOR"), ("Q9Y5Y9", "Nav1.8"),
+
+    # -- oncology and epigenetics -------------------------------------------------------
+    ("P07900", "HSP90-alpha"), ("P09874", "PARP1"), ("P04637", "p53"), ("P01116", "KRAS"),
+    ("O60885", "BRD4"), ("O00255", "Menin"), ("P10275", "Androgen receptor"),
+    ("P03372", "ER-alpha"),
+
+    # -- infectious disease -------------------------------------------------------------
+    ("P0DTD1", "SARS-CoV-2 nsp5"), ("P0DTC2", "SARS-CoV-2 spike"),
+    ("P62593", "TEM-1 beta-lactamase"), ("P00722", "beta-galactosidase"),
+    ("P9WGR1", "M. tuberculosis InhA"),
+
+    # -- metabolic, cardiovascular and neurodegeneration ---------------------------------
+    ("P56817", "BACE1"), ("P00734", "Thrombin"), ("P22303", "AChE"), ("P00742", "Factor Xa"),
+    ("P27487", "DPP-4"), ("P08684", "CYP3A4"), ("P00918", "Carbonic anhydrase II"),
+    ("P37840", "alpha-synuclein"), ("P10636", "Tau"), ("P00441", "SOD1"),
+    ("P02766", "Transthyretin"), ("P05067", "APP"),
 ]
+
+# Deduplicated, keeping the first mention: several proteins are legitimately in two groups
+# above (TEM-1 is both a landing example and an infectious-disease target) and building a
+# family twice is only slower, never different.
+_seen = set()
+TARGETS = [t for t in TARGETS if not (t[0] in _seen or _seen.add(t[0]))]
 
 
 def main() -> int:
