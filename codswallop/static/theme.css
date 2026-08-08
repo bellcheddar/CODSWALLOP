@@ -393,6 +393,20 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .filtersum { font-size: 11.5px; color: var(--mute); margin-left: auto; }
 .filtersum b { color: var(--text); font-family: var(--mono); }
 
+/* Copy-this-view. Sits after the filter summary, which already claims margin-left:auto, so
+   this one only needs its own gap rather than fighting for the right-hand end. */
+.linkbtn {
+  font: inherit; font-size: 11.5px; color: var(--dim);
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 5px 10px; margin-left: 10px;
+  cursor: pointer; white-space: nowrap;
+  transition: color .18s, border-color .18s, background .18s;
+}
+.linkbtn:hover, .linkbtn:focus-visible { color: var(--brass); border-color: var(--brass); }
+.linkbtn.failed { color: var(--rust, var(--brass)); border-color: currentColor; }
+@media (prefers-reduced-motion: reduce) { .linkbtn { transition: none; } }
+@media (max-width: 640px) { .linkbtn { margin-left: 0; margin-top: 8px; } }
+
 /* ====================================================================================
    6. Hero: the constellation, with the entry list permanently beside it
    ==================================================================================== */

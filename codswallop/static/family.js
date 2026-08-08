@@ -160,9 +160,16 @@
     var slider = $("identity");
     slider.min = lo;
     slider.max = Math.max(hi, lo + 1);
-    slider.value = lo;
-    S.filters.identity = lo;
-    $("identityVal").textContent = "≥" + lo + "%";
+    // A restored identity wins over the family's own floor, but is still clamped to the
+    // slider's travel: a link made when the family spanned 28 % must not leave the control
+    // showing a value it cannot return to after the family is reassembled.
+    var start = lo;
+    if (S.restored && S.restored.i != null && !isNaN(Number(S.restored.i))) {
+      start = Math.min(Math.max(Number(S.restored.i), lo), Math.max(hi, lo + 1));
+    }
+    slider.value = start;
+    S.filters.identity = start;
+    $("identityVal").textContent = "≥" + start + "%";
 
     // Method chips, from what the family actually contains.
     var counts = {};
@@ -178,7 +185,8 @@
         b.type = "button";
         b.className = "chip";
         b.dataset.method = name;
-        b.setAttribute("aria-pressed", "true");
+        b.setAttribute("aria-pressed",
+          S.filters.methods && !S.filters.methods.has(name) ? "false" : "true");
         b.innerHTML = '<span class="dot"></span>' + esc(name) +
           ' <span class="n">' + commas(counts[name]) + "</span>";
         b.addEventListener("click", function () { toggleMethod(name, b); });
@@ -191,6 +199,13 @@
     // that cannot change the answer.
     $("optOrth").disabled = !s.orthologues;
     $("optFusion").disabled = !s.fusions;
+
+    // The checkboxes are markup defaults, so a restored state has to be pushed into them or
+    // the page shows "include orthologues" ticked while filtering them out.
+    $("optOrth").checked = S.filters.orthologues;
+    $("optFusion").checked = S.filters.fusions;
+    var holo = $("optHolo");
+    if (holo) holo.checked = S.filters.holoOnly;
   }
 
   function toggleMethod(name, btn) {
@@ -227,6 +242,113 @@
   function apply() {
     recompute();
     notify("visible");
+    writeUrl();
+  }
+
+  /* ==================================================================================
+     4b. Permalinks
+     ==================================================================================
+     What a reader is looking at is a filter state, not a page. Somebody who narrows a
+     1,988-entry family to the DFG-out X-ray structures of one TM cluster and then wants to
+     show a colleague has, without this, nothing to send but the family URL and a set of
+     verbal instructions.
+
+     Only non-defaults are written, so the common case stays a clean /f/<slug> and the URL
+     grows exactly in proportion to how much the reader has done to it.
+
+     The cluster is the one piece of state that cannot be stored literally: it is a set of
+     up to 260 construct ids. It is stored instead as the cut height plus a single member,
+     and rebuilt by re-clustering at that height and taking the group that member landed in.
+     That also degrades honestly, since a link made before an embedding was rebuilt restores
+     a cluster from the matrix that exists now rather than asserting a stale one. */
+  var DEFAULTS = { i: 30, o: 1, f: 1, h: 0, v: "map", cut: 0.18 };
+
+  function writeUrl() {
+    if (!S.family) return;
+    var p = [];
+    function put(k, v) { if (String(v) !== String(DEFAULTS[k])) p.push(k + "=" + v); }
+    put("i", S.filters.identity);
+    put("o", S.filters.orthologues ? 1 : 0);
+    put("f", S.filters.fusions ? 1 : 0);
+    put("h", S.filters.holoOnly ? 1 : 0);
+    put("v", S.view);
+    if (S.filters.methods) {
+      var all = new Set(S.members.map(function (m) { return methodBucket(m.method); }));
+      // "every method" and "no method excluded" are the same view; only the second is worth
+      // a parameter, or a family that happens to be all X-ray would carry a redundant one.
+      if (S.filters.methods.size !== all.size) {
+        p.push("m=" + encodeURIComponent(Array.from(S.filters.methods).join(",")));
+      }
+    }
+    if (S.picked) p.push("p=" + encodeURIComponent(S.picked));
+    if (S.construct) p.push("c=" + encodeURIComponent(S.construct));
+    if (S.cluster && S.cluster.size) {
+      var cutEl = $("tmCut");
+      var cut = cutEl ? Number(cutEl.value) / 100 : DEFAULTS.cut;
+      if (cut !== DEFAULTS.cut) p.push("cut=" + cut.toFixed(2));
+      p.push("cl=" + encodeURIComponent(Array.from(S.cluster)[0]));
+    }
+    var hash = p.length ? "#" + p.join("&") : "";
+    // replaceState, not pushState: the identity slider fires on every step, and a history
+    // entry per step makes the back button useless for leaving the page.
+    if (location.hash !== hash) {
+      try { history.replaceState(null, "", location.pathname + location.search + hash); }
+      catch (e) { /* file:// and some embedded views refuse; the page still works */ }
+    }
+  }
+
+  function readUrl() {
+    var out = {};
+    (location.hash || "").replace(/^#/, "").split("&").forEach(function (kv) {
+      if (!kv) return;
+      var i = kv.indexOf("=");
+      if (i > 0) out[kv.slice(0, i)] = decodeURIComponent(kv.slice(i + 1));
+    });
+    return out;
+  }
+
+  /* Applied before the panels render, so nothing paints twice and no panel has to know that
+     a restore is happening. */
+  function restoreFromUrl() {
+    var q = readUrl();
+    S.restored = q;
+    if (!Object.keys(q).length) return;
+
+    if (q.i != null && !isNaN(Number(q.i))) S.filters.identity = Number(q.i);
+    if (q.o != null) S.filters.orthologues = q.o !== "0";
+    if (q.f != null) S.filters.fusions = q.f !== "0";
+    if (q.h != null) S.filters.holoOnly = q.h === "1";
+    if (q.v === "table" || q.v === "map") S.view = q.v;
+    if (q.m) S.filters.methods = new Set(q.m.split(",").filter(Boolean));
+    if (q.c) S.construct = q.c;
+
+    // The entity may no longer exist: families are reassembled weekly and entries are
+    // occasionally obsoleted, so a link older than the archive is a real case. Silently
+    // dropping the selection is right, because the rest of the state is still valid.
+    if (q.p && S.members.some(function (m) { return String(m.entity_id) === q.p; })) {
+      S.picked = q.p;
+    }
+
+    var m = S.family && S.family.map;
+    if (q.cl && m && m.embedded && m.tm && m.tm.length && window.TmHeatmap) {
+      var cut = q.cut != null ? Number(q.cut) : DEFAULTS.cut;
+      var seat = m.representatives.findIndex(function (r) { return r.seq_id === q.cl; });
+      if (seat >= 0) {
+        try {
+          var groups = TmHeatmap.cut(TmHeatmap.cluster(m.tm), cut);
+          for (var gi = 0; gi < groups.length; gi++) {
+            if (groups[gi].indexOf(seat) >= 0) {
+              S.cluster = new Set(groups[gi].map(function (l) {
+                return m.representatives[l].seq_id;
+              }));
+              break;
+            }
+          }
+        } catch (e) { /* a matrix that will not cluster is not worth failing the page over */ }
+        var cutEl = $("tmCut");
+        if (cutEl && q.cut != null) cutEl.value = String(Math.round(cut * 100));
+      }
+    }
   }
 
   /* ==================================================================================
@@ -338,6 +460,7 @@
     var m = memberById(id);
     if (!m) return;
     S.picked = id;
+    writeUrl();
 
     $("cardTitle").textContent = m.pdb_id + " · entity " + m.entity_id.split("_")[1];
     $("cardTitleText").textContent = m.title || "";
@@ -464,6 +587,7 @@
     $("indexCard").classList.remove("on");
     $("scrim").classList.remove("on");
     S.picked = null;
+    writeUrl();
     setTimeout(function () { $("indexCard").hidden = true; }, 320);
   }
 
@@ -714,8 +838,9 @@
   /* ==================================================================================
      10. Map / Table segmented control, and the rail
      ================================================================================== */
-  function wireView() {
-    function set(view) {
+  // Hoisted out of wireView so a restored permalink can switch view without synthesising a
+  // click on a button, which is the kind of thing that works until the button moves.
+  function setView(view) {
       S.view = view;
       $("btnMap").setAttribute("aria-pressed", view === "map" ? "true" : "false");
       $("btnTable").setAttribute("aria-pressed", view === "table" ? "true" : "false");
@@ -729,9 +854,52 @@
       } else if (constellation) {
         requestAnimationFrame(function () { constellation.resize(); constellation.draw(); });
       }
-    }
-    $("btnMap").addEventListener("click", function () { set("map"); });
-    $("btnTable").addEventListener("click", function () { set("table"); });
+      writeUrl();
+  }
+
+  function wireView() {
+    $("btnMap").addEventListener("click", function () { setView("map"); });
+    $("btnTable").addEventListener("click", function () { setView("table"); });
+
+    var copy = $("btnCopyLink");
+    if (!copy) return;
+    copy.addEventListener("click", function () {
+      writeUrl();                       // in case nothing has changed since load
+      var url = location.href;
+      function done(ok) {
+        copy.classList.toggle("failed", !ok);
+        copy.innerHTML = ok ? '<span aria-hidden="true">✓</span> Copied'
+                            : '<span aria-hidden="true">⚠</span> Press ⌘C';
+        setTimeout(function () {
+          copy.classList.remove("failed");
+          copy.innerHTML = '<span aria-hidden="true">🔗</span> Copy this view';
+        }, 2200);
+      }
+      // navigator.clipboard is undefined on any non-secure origin, which includes the
+      // http://localhost:8006 the app is developed against, so the fallback is not a
+      // legacy-browser courtesy: it is the path taken every time it is tested by hand.
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(function () { done(true); },
+                                                function () { legacy(url, done); });
+      } else {
+        legacy(url, done);
+      }
+    });
+  }
+
+  /* Selecting the URL in a throwaway textarea, which is the only copy path that works
+     without a secure origin. Left selected on failure so ⌘C still finishes the job. */
+  function legacy(text, done) {
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.cssText = "position:fixed;top:0;left:0;opacity:0";
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    done(ok);
   }
 
   function wireRail() {
@@ -1001,6 +1169,7 @@
   function setConstruct(seqId) {
     if (S.construct === seqId) return;
     S.construct = seqId;
+    writeUrl();
     if (!constellation) return;
     if (!seqId) {
       constellation.applyVisible(S.visible);
@@ -1752,6 +1921,10 @@
 
     $("filing").hidden = true;
 
+    // Before any panel renders, so a shared link paints once in its restored state rather
+    // than painting the default and then visibly rearranging itself.
+    restoreFromUrl();
+
     renderHeader();
     renderStats();
     renderFilters();
@@ -1797,6 +1970,14 @@
     });
 
     notify("boot");
+
+    // Last, because both need panels that only exist after the first notify: the table is
+    // built on demand and the index card reads a row that renderList has to have made.
+    if (S.restored) {
+      if (S.restored.v === "table") setView("table");
+      if (S.picked) { var id = S.picked; S.picked = null; openCard(id); }
+    }
+    writeUrl();
   }
 
   function fail(message) {

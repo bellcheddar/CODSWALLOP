@@ -91,6 +91,13 @@
           </div>
 
           <span class="filtersum" id="filterSum"></span>
+
+          {# The filter state lives in the URL, so this is a copy button rather than a
+             share dialogue: there is nothing to generate, only something to hand over. #}
+          <button type="button" class="linkbtn" id="btnCopyLink"
+                  title="Copy a link that reopens this exact view">
+            <span aria-hidden="true">🔗</span> Copy this view
+          </button>
         </div>
 
         {# ---- hero: constellation with the entry list permanently beside it -------- #}
