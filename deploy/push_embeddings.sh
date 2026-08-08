@@ -19,10 +19,10 @@ DROPLET_PATH="${DROPLET_PATH:-/opt/codswallop}"
 SSH_KEY="${SSH_KEY:-}"
 
 [[ -z "$DROPLET_SSH" ]] && { echo "DROPLET_SSH is not set (see .env.example)."; exit 1; }
-[[ -d data/embeddings ]] || { echo "No embeddings yet. Run: python CODSWALLOP.py embed <query>"; exit 1; }
+[[ -d data/embeddings || -d data/contacts ]] || { echo "Nothing to push. Run: python CODSWALLOP.py embed <query>"; exit 1; }
 
-n=$(find data/embeddings -name '*.json' | wc -l | tr -d ' ')
-echo "==> Pushing ${n} embedding(s) to ${DROPLET_SSH}:${DROPLET_PATH}/data/embeddings/"
+n=$(find data/embeddings data/contacts -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
+echo "==> Pushing ${n} artefact(s) to ${DROPLET_SSH}:${DROPLET_PATH}/data/"
 
 SSH_OPTS=()
 [[ -n "$SSH_KEY" ]] && SSH_OPTS=(-e "ssh -i ${SSH_KEY/#\~/$HOME}")
@@ -30,12 +30,15 @@ SSH_OPTS=()
 # No --delete: an embedding on the server that this workstation has not computed is not
 # stale, it was computed somewhere else. Removing artefacts is a deliberate act, not a
 # side effect of pushing from a different machine.
-rsync -az ${SSH_OPTS[@]+"${SSH_OPTS[@]}"} \
-  --include '*/' --include '*.json' --exclude '*' \
-  data/embeddings/ "${DROPLET_SSH}:${DROPLET_PATH}/data/embeddings/"
+for dir in embeddings contacts; do
+  [[ -d "data/$dir" ]] || continue
+  rsync -az ${SSH_OPTS[@]+"${SSH_OPTS[@]}"} \
+    --include '*/' --include '*.json' --exclude '*' \
+    "data/$dir/" "${DROPLET_SSH}:${DROPLET_PATH}/data/$dir/"
+done
 
 SSH_CMD=(ssh); [[ -n "$SSH_KEY" ]] && SSH_CMD=(ssh -i "${SSH_KEY/#\~/$HOME}")
 "${SSH_CMD[@]}" "$DROPLET_SSH" \
-  "chown -R codswallop:codswallop ${DROPLET_PATH}/data/embeddings && \
-   ls -1 ${DROPLET_PATH}/data/embeddings | wc -l | xargs echo '   embeddings on the droplet:'"
+  "chown -R codswallop:codswallop ${DROPLET_PATH}/data && \
+   find ${DROPLET_PATH}/data/embeddings ${DROPLET_PATH}/data/contacts -name '*.json' 2>/dev/null | wc -l | xargs echo '   artefacts on the droplet:'"
 echo "==> Done. The map switches to the embedding on the next page load."

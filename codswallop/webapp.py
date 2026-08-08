@@ -36,17 +36,7 @@ SECTIONS = [
     {"id": "domains", "label": "Domains", "phase": 2, "live": True},
         {"id": "structures", "label": "Structures", "phase": 3, "live": True},
         {"id": "ligands", "label": "Ligands", "phase": 3, "live": True},
-    {
-        "id": "contacts", "label": "Contacts", "phase": 3,
-        "blurb": "PLIP run family-wide, so binding-site contacts are comparable across "
-                 "entries rather than one-off.",
-        "bullets": [
-            "Per-entry interaction diagrams",
-            "Family <b>interaction fingerprint</b> heatmap (ligand &times; residue)",
-            "A &ldquo;hot residue&rdquo; ranking, mapped back onto the alignment and onto Mol*",
-            "Runs as a background job with progressive fill: the map never waits for PLIP",
-        ],
-    },
+        {"id": "contacts", "label": "Contacts", "phase": 3, "live": True},
         {"id": "crystals", "label": "Crystals", "phase": 3, "live": True},
         {"id": "quality", "label": "Quality", "phase": 3, "live": True},
     {

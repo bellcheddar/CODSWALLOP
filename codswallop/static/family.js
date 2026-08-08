@@ -1402,6 +1402,73 @@
     }
   }
 
+  /* ---- PLIP contacts ---------------------------------------------------------------- */
+  function renderContacts() {
+    var c = S.family.contacts;
+    if (!c) {
+      $("contactSub").textContent = "no interaction profile for this family yet";
+      $("hotResidues").innerHTML = '<p class="empty">Run <code>CODSWALLOP.py contacts</code> ' +
+        "on a workstation: PLIP and OpenBabel are not installed on the server.</p>";
+      $("fingerprint").innerHTML = "";
+      return;
+    }
+    $("contactSub").textContent = commas(c.n_contacts) + " contacts across " +
+      c.entries_analysed + " ligand-bound entries" +
+      (c.entries_failed ? " (" + c.entries_failed + " failed to convert)" : "") +
+      " · " + c.by_type.map(function (t) { return t[0].replace(/_/g, " ") + " " + t[1]; })
+        .slice(0, 4).join(", ");
+
+    // The ranking, with conservation alongside: a residue that is both heavily contacted
+    // and conserved is the one to care about, and the app already knows both.
+    var cons = {};
+    if (S.family.msa && S.family.msa.columns) {
+      S.family.msa.columns.forEach(function (col) { cons[col.pos] = col.conservation; });
+    }
+    $("hotResidues").innerHTML = table2(
+      ["Residue", "Contacts", "Entries", "Conservation"],
+      c.hot_residues.slice(0, 40).map(function (h) {
+        return [(h.restype || "") + h.pos, commas(h.contacts), commas(h.entries),
+                cons[h.pos] == null ? "—" : cons[h.pos].toFixed(3)];
+      }), [1, 2, 3]);
+
+    renderFingerprint(c);
+  }
+
+  /* Ligand by residue. A grid rather than a chart: the question is "does this ligand touch
+     that residue, and how often", which is a lookup, and a heatmap of a few hundred cells
+     answers it faster than any of the alternatives. */
+  function renderFingerprint(c) {
+    var positions = c.positions.slice(0, 30);
+    var ligs = c.ligands.slice(0, 20);
+    if (!positions.length || !ligs.length) { $("fingerprint").innerHTML = ""; return; }
+
+    var max = 0;
+    ligs.forEach(function (l) {
+      positions.forEach(function (p) {
+        max = Math.max(max, (c.fingerprint[l] || {})[String(p)] || 0);
+      });
+    });
+
+    var head = "<tr><th>Ligand</th>" + positions.map(function (p) {
+      return '<th class="rot">' + p + "</th>";
+    }).join("") + "</tr>";
+    var body = ligs.map(function (l) {
+      return '<tr><td class="n">' + esc(l) + "</td>" + positions.map(function (p) {
+        var v = (c.fingerprint[l] || {})[String(p)] || 0;
+        var a = max ? v / max : 0;
+        return '<td class="fp" style="background:color-mix(in srgb, var(--cyan) ' +
+          Math.round(a * 100) + '%, transparent)" title="' + esc(l) + " · residue " + p +
+          " · " + v + ' contacts">' + (v || "") + "</td>";
+      }).join("") + "</tr>";
+    }).join("");
+
+    $("fingerprint").innerHTML = '<div class="tablewrap"><table class="fptable">' +
+      "<thead>" + head + "</thead><tbody>" + body + "</tbody></table></div>" +
+      '<p class="caveat">Residue numbers are seed coordinates, the same frame as the ' +
+      "conservation track and the domain ribbon. One entry per distinct construct, best " +
+      "resolution first, so a construct solved two hundred times does not dominate.</p>";
+  }
+
   /* ---- the TM-score matrix --------------------------------------------------------- */
   var tmState = null;
 
@@ -1608,6 +1675,7 @@
     renderSeedSequence();
     renderConservation();
     renderHeatmap();
+    renderContacts();
     renderConstructs();
     renderDomains();
     renderOrthologues();

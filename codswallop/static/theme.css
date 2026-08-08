@@ -822,3 +822,14 @@ footer.site .sources { margin-top: 7px; }
 .tmgroup .ids { font-family: var(--mono); font-size: 10.5px; color: var(--mute);
   margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tmgroup.on { border-left-color: var(--brass); background: var(--surface-2); }
+
+/* ---- interaction fingerprint --------------------------------------------------------- */
+.fptable { border-collapse: collapse; font-size: 11px; }
+.fptable th { font-family: var(--mono); font-size: 9.5px; color: var(--mute);
+  padding: 3px 2px; font-weight: 500; text-align: center; }
+.fptable th.rot { writing-mode: vertical-rl; transform: rotate(180deg); height: 46px; }
+.fptable td { padding: 3px 5px; border: 1px solid var(--line); text-align: center;
+  color: var(--text); font-family: var(--mono); min-width: 22px; }
+.fptable td.n { font-family: var(--mono); color: var(--amber); text-align: left;
+  border-color: var(--line); }
+.fptable td.fp { color: var(--text); }

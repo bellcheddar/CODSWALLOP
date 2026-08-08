@@ -122,6 +122,45 @@ def cmd_embed(args) -> int:
     return 0
 
 
+def cmd_contacts(args) -> int:
+    """Run PLIP over a family's ligand-bound entries and store the fingerprint.
+
+    Workstation only: this shells out to PLIP and OpenBabel. Push the artefact with
+    deploy/push_embeddings.sh, which ships data/contacts/ alongside data/embeddings/.
+    """
+    from codswallop import contacts, family, resolve
+
+    db.init()
+    result = resolve.resolve(args.query)
+    if result["status"] != "resolved":
+        print(result.get("message") or result.get("prompt"), file=sys.stderr)
+        return 1
+    fam = family.get_or_build(result["seed"], args.query)
+    print(f"{fam['name']}: {fam['stats']['holo_entries']} ligand-bound entities")
+
+    last = [0.0]
+
+    def progress(i, n, pdb_id):
+        if time.time() - last[0] > 1.0 or i == n:
+            last[0] = time.time()
+            print(f"\r  PLIP {i}/{n} {pdb_id:<8}", end="", flush=True)
+
+    t0 = time.time()
+    art = contacts.build(fam, max_entries=args.max, progress=progress)
+    print()
+    if not art:
+        print("  No contacts found (nothing ligand-bound, or every conversion failed).",
+              file=sys.stderr)
+        return 1
+    print(f"  {art['entries_analysed']} entries analysed ({art['entries_failed']} failed), "
+          f"{art['n_contacts']:,} contacts, {time.time() - t0:.0f}s")
+    print(f"  types: {', '.join(f'{k} {v}' for k, v in art['by_type'][:5])}")
+    hot = art["hot_residues"][:6]
+    print(f"  hottest residues: {', '.join(h['restype'] + str(h['pos']) for h in hot)}")
+    print(f"  wrote {contacts.artefact_path(fam['slug'])}")
+    return 0
+
+
 def cmd_warm(args) -> int:
     """Pre-build families, so a cold cache is paid for by cron rather than by a reader.
 
@@ -195,6 +234,11 @@ def main(argv=None) -> int:
     sp.add_argument("--max", type=int, default=None,
                     help="cap on representative structures (default 260)")
     sp.set_defaults(fn=cmd_embed)
+
+    sp = sub.add_parser("contacts", help="run PLIP family-wide (workstation only)")
+    sp.add_argument("query", help="the family to profile")
+    sp.add_argument("--max", type=int, default=60, help="cap on entries analysed")
+    sp.set_defaults(fn=cmd_contacts)
 
     sp = sub.add_parser("warm", help="pre-build families so the first visitor waits for nothing")
     sp.add_argument("queries", nargs="*", help="queries to warm (default: everything already filed)")

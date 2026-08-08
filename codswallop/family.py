@@ -239,6 +239,8 @@ def decorate(fam: dict) -> dict:
     fam["map"] = layout.compute(members, min(floor, config.IDENTITY_MAX - 1),
                                 embedding=_embedding_for(fam["slug"]))
 
+    fam["contacts"] = _optional("contacts", lambda: _contacts_for(fam["slug"]), None)
+
     fam["domains"] = _optional("domains", lambda: build_domains(fam, members),
                                {"sources": [], "domains": []})
     fam["orthologues"] = _optional(
@@ -301,6 +303,12 @@ def _embedding_for(slug: str) -> Optional[dict]:
     except Exception:
         logger.warning("could not read the embedding for %s", slug, exc_info=True)
         return None
+
+
+def _contacts_for(slug: str) -> Optional[dict]:
+    """The PLIP fingerprint, if a workstation has produced one. Imports nothing heavy."""
+    from .contacts_io import load
+    return load(slug)
 
 
 def _optional(name: str, build, fallback):

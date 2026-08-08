@@ -29,3 +29,8 @@ codswallop.db-shm
 # untracked file it should not have.
 codswallop-*.txt
 *-session.txt
+
+# Vendored from Marc's cif2plip (DeepCovalent / BoltzMaker). Tracked deliberately: the
+# contacts pipeline depends on its CONECT serial-gap fix, and a copy that can drift out
+# of the repo is a copy that will.
+!pipeline/cif2plip.py
