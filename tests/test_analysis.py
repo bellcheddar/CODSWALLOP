@@ -534,3 +534,36 @@ def test_the_stage_ladder_prefers_the_strongest_evidence():
     assert _stage(["investigational"], {"phase": "Phase 3", "n_studies": 9})[0] == "Phase 3"
     assert _stage(["experimental"], None)[0] == "Preclinical"
     assert _stage([], None)[0] == "Unknown"
+
+
+def test_a_drug_untied_to_the_protein_is_not_a_drug_for_this_pocket():
+    """Isopropyl alcohol is an approved topical antiseptic and a cryoprotectant in four KRAS
+    crystals. Both are true; only one is about the protein. Listing every DrugBank-linked
+    component answers "what happens to be in DrugBank" under a heading that claims to answer
+    "what drugs this target", and every drug the KRAS family produced was untied."""
+    from codswallop import drugs
+
+    fam = {"name": "GTPase KRas",
+           "ligands": {"components": [
+               {"id": "IPA", "klass": "ligand", "count": 4, "name": "ISOPROPYL ALCOHOL"}]}}
+    ann = {"IPA": {"drugbank_id": "DB02325", "generic": "Isopropyl alcohol",
+                   "groups": ["approved"], "atc": ["D08AX05"], "brands": [],
+                   "targets": [{"name": "Tumor necrosis factor"}],
+                   "indication": "topical antiseptic", "mechanism": "denatures protein"}}
+    real_annotate = drugs.annotate
+    drugs.annotate = lambda ids: ann
+    try:
+        out = drugs.build(fam)
+    finally:
+        drugs.annotate = real_annotate
+
+    assert out["n"] == 0, "an untied component must not be listed as a drug for this target"
+    assert out["n_untied"] == 1, "but it is counted and named, not silently dropped"
+    assert out["untied"][0]["generic"] == "Isopropyl alcohol"
+
+
+def test_small_solvents_are_cryoprotectants_not_ligands():
+    """They arrive from the cryo or the mother liquor, never from biology."""
+    from codswallop.ligands import classify
+    for cid in ("IPA", "EOH", "DIO", "TBU"):
+        assert classify(cid, "") == "cryoprotectant", f"{cid} should not read as a ligand"

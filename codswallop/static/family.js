@@ -2013,11 +2013,21 @@
   function renderDrugs() {
     var d = S.family.drugs || { n: 0, classes: [] };
     if (!d.n) {
-      $("drugSub").textContent = "no drug-annotated components";
+      $("drugSub").textContent = "no drugs annotated against this protein";
       $("drugIntro").innerHTML = "";
-      $("drugClasses").innerHTML = '<p class="empty">None of this family\'s bound components ' +
-        "is linked to a drug in DrugBank. For a target nobody has prosecuted, that is the " +
-        "answer rather than a gap.</p>";
+      $("drugClasses").innerHTML = '<p class="empty">No component bound anywhere in this ' +
+        "family is annotated as a drug against this protein." +
+        (d.n_untied
+          ? " " + d.n_untied + " bound components are drugs elsewhere (" +
+            (d.untied || []).slice(0, 6).map(function (u) {
+              return esc(u.generic || u.id);
+            }).join(", ") + "), which is a fact about those molecules rather than about " +
+            "this target."
+          : "") +
+        " <b>Read this as what the archive can prove, not as what has been tried.</b> The " +
+        "component-to-drug link comes from DrugBank through the RCSB, and its target lists " +
+        "lag for recent approvals: KRAS has two approved G12C inhibitors and not one of its " +
+        "465 bound components is annotated against KRas.</p>";
       return;
     }
 
@@ -2033,13 +2043,16 @@
       "WHO's own scheme, and a drug used for two things appears under both.</p>" +
       // A zero here is the one number on this panel that can mislead badly, so it explains
       // itself rather than being left to read as a fact about the protein.
-      (d.n && !d.n_on_target
-        ? '<p class="caveat warn"><b>None of them is tied to this protein, and that is a ' +
-          "limit of the annotation rather than a statement about the target.</b> The link " +
-          "from a component to a drug comes from DrugBank through the RCSB, and its target " +
-          "lists lag for recently approved drugs: KRAS has two approved G12C inhibitors and " +
-          "not one of its 465 bound components is annotated against KRas. Read this panel " +
-          "as what the archive can currently prove, not as what has been tried.</p>"
+      (d.n_untied
+        ? '<p class="caveat">' + d.n_untied + " other bound component" +
+          (d.n_untied === 1 ? " is a drug" : "s are drugs") + " somewhere else and " +
+          (d.n_untied === 1 ? "is" : "are") + " not annotated against this protein, so " +
+          (d.n_untied === 1 ? "it is" : "they are") + " not listed above: " +
+          (d.untied || []).slice(0, 8).map(function (u) {
+            return esc(u.generic || u.id);
+          }).join(", ") + ". Isopropyl alcohol is an approved antiseptic and a " +
+          "cryoprotectant in four KRAS crystals; both are true and only one of them is " +
+          "about the protein.</p>"
         : "");
 
     var shown = d.classes.map(function (cl) {

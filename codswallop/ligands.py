@@ -41,6 +41,16 @@ CRYOPROTECTANTS = {
     "7PE", "12P", "15P", "M2M", "MXE", "DEG", "TEG", "PGO", "PDO", "PGR", "SPD",
     "SUC", "TRE", "GLC", "XYL", "MAN", "GAL", "FRU",
     "DMS",   # DMSO
+    # The small alcohols and organic solvents. They arrive from the cryo or the mother
+    # liquor, never from biology, and calling them ligands let isopropanol reach a panel of
+    # drugs as an "approved" one: it is an approved topical antiseptic, and a cryoprotectant
+    # in four KRAS crystals.
+    "IPA",   # isopropyl alcohol
+    "EOH", "MOH", "ETH",     # ethanol, methanol
+    "ACN", "ACT", "ACY",     # acetonitrile, acetate, acetic acid
+    "BUD", "BU1", "BU2", "BU3", "TBU",   # butanediols and tert-butanol
+    "DIO",   # dioxane
+    "THJ",   # trihydroxy propane
 }
 
 BUFFERS = {

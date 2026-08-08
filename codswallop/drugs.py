@@ -351,6 +351,15 @@ def build(fam: dict, max_drugs: int = 120) -> dict:
             "trials": trial,
         })
 
+    # A drug for THIS pocket has to be tied to this protein. Without that requirement the
+    # panel answers a different question, "which bound components happen to exist in
+    # DrugBank", and answers it with isopropyl alcohol: an approved topical antiseptic, a
+    # cryoprotectant in four KRAS crystals, and listed under a heading claiming it is a drug
+    # against KRas. Every drug the KRAS family produced was untied, and the panel showed
+    # them all.
+    untied = [d for d in drugs if not d["tie"]]
+    drugs = [d for d in drugs if d["tie"]]
+
     drugs.sort(key=lambda d: (STAGE_ORDER.index(d["stage"]), -d["entries"]))
 
     # A drug in two classes appears in two: the grouping reflects what the drug is used for,
@@ -367,6 +376,11 @@ def build(fam: dict, max_drugs: int = 120) -> dict:
 
     return {
         "n": len(drugs),
+        # Counted, named and kept out of the drug list. They are real drugs somewhere else,
+        # which is exactly why they must not be presented as drugs here.
+        "n_untied": len(untied),
+        "untied": [{"id": d["id"], "generic": d["generic"], "entries": d["entries"]}
+                   for d in sorted(untied, key=lambda x: -x["entries"])[:20]],
         "n_approved": sum(1 for d in drugs if d["stage"] == "Approved"),
         "n_on_target": sum(1 for d in drugs if d["on_target"]),
         "n_annotated": sum(1 for d in drugs if d.get("tie") == "annotated"),
