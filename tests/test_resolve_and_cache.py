@@ -86,3 +86,43 @@ def test_migrations_add_columns_to_an_existing_table(fresh_db):
     fresh_db.init()
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(entity)")}
     assert {"query_beg", "query_end", "uniprot_ids"} <= cols
+
+
+# The artefact queue. A family a reader assembles on the live site has an embedding on
+# neither machine, and the droplet is the only one that knows while being the only one that
+# cannot fix it.
+def test_a_request_is_recorded_once_and_counted_thereafter(tmp_path, monkeypatch):
+    from codswallop import config, db
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "q.db")
+    monkeypatch.setattr(db._local, "conn", None, raising=False)
+    db.init()
+    db.request_artefact("gfp-p42212", "P42212", "both", "GFP", 1138)
+    db.request_artefact("gfp-p42212", "P42212", "both", "GFP", 1138)
+    rows = db.open_requests()
+    assert len(rows) == 1 and rows[0]["hits"] == 2, "the queue is a priority order, not a log"
+
+    db.mark_request_served("gfp-p42212")
+    assert db.open_requests() == []
+
+
+def test_a_family_that_needs_more_than_it_did_is_requeued(tmp_path, monkeypatch):
+    """Served means served for what was asked. A family whose contacts were built and whose
+    embedding was later invalidated by a pipeline bump must come back, or a version bump
+    silently strands every family that had already been through the queue once."""
+    from codswallop import config, db
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "q2.db")
+    monkeypatch.setattr(db._local, "conn", None, raising=False)
+    db.init()
+    db.request_artefact("abl1", "P00519", "contacts", "ABL1", 1988)
+    db.mark_request_served("abl1")
+    assert db.open_requests() == []
+    db.request_artefact("abl1", "P00519", "both", "ABL1", 1988)
+    assert [r["slug"] for r in db.open_requests()] == ["abl1"]
+
+
+def test_recording_a_request_never_breaks_the_page(monkeypatch):
+    """It runs in the request path. A queue that cannot be written is a missing rebuild; an
+    exception there would be a 500 on a page that is otherwise perfectly serviceable."""
+    from codswallop import db
+    monkeypatch.setattr(db, "connect", lambda: (_ for _ in ()).throw(db.sqlite3.Error("nope")))
+    db.request_artefact("x", "y", "both")      # must not raise

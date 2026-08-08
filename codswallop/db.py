@@ -17,12 +17,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import sqlite3
 import threading
 import time
 from typing import Any, Optional
 
 from . import config
+
+logger = logging.getLogger(__name__)
 
 _local = threading.local()
 
@@ -100,6 +103,29 @@ CREATE TABLE IF NOT EXISTS entity (
 );
 CREATE INDEX IF NOT EXISTS ix_entity_slug ON entity(slug);
 CREATE INDEX IF NOT EXISTS ix_entity_pdb ON entity(slug, pdb_id);
+
+-- Families that were served without a current structural artefact.
+--
+-- The embedding and the interaction fingerprint are built on a workstation and rsynced
+-- across, so a family assembled for the first time by a reader on the live site has an
+-- artefact on neither machine and falls back to the identity placeholder. The droplet is
+-- the only machine that knows this happened and the one machine that cannot fix it, so it
+-- records the request here and the workstation drains the queue (deploy/drain_queue.sh).
+--
+-- `hits` is what makes the queue a priority order rather than a log: a family five people
+-- opened is worth an hour of TM-align before one that a crawler touched once.
+CREATE TABLE IF NOT EXISTS artefact_request (
+    slug        TEXT PRIMARY KEY,
+    query       TEXT NOT NULL,          -- what to hand back to the CLI to rebuild it
+    name        TEXT,
+    kind        TEXT NOT NULL,          -- 'embedding' | 'contacts' | 'both'
+    n_entries   INTEGER,
+    hits        INTEGER NOT NULL DEFAULT 1,
+    first_seen  INTEGER NOT NULL,
+    last_seen   INTEGER NOT NULL,
+    served_at   INTEGER                 -- set when the workstation has built and pushed it
+);
+CREATE INDEX IF NOT EXISTS ix_request_open ON artefact_request(served_at, hits DESC);
 """
 
 
@@ -355,6 +381,50 @@ def recent_families(limit: int = 12) -> list[dict]:
         (limit,),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+# --------------------------------------------------------------------------------------
+# Artefact requests
+# --------------------------------------------------------------------------------------
+def request_artefact(slug: str, query: str, kind: str,
+                     name: Optional[str] = None, n_entries: Optional[int] = None) -> None:
+    """Record that a family was served without a current structural artefact.
+
+    Called from the request path, so it must never raise: a queue that cannot be written is
+    a missing rebuild, while an exception here would be a 500 on a page that is otherwise
+    perfectly serviceable in its degraded form.
+    """
+    now = int(time.time())
+    try:
+        conn = connect()
+        conn.execute(
+            "INSERT INTO artefact_request "
+            "  (slug, query, name, kind, n_entries, hits, first_seen, last_seen) "
+            "VALUES (?, ?, ?, ?, ?, 1, ?, ?) "
+            "ON CONFLICT(slug) DO UPDATE SET "
+            "  hits = hits + 1, last_seen = excluded.last_seen, kind = excluded.kind, "
+            "  served_at = CASE WHEN artefact_request.kind != excluded.kind "
+            "                   THEN NULL ELSE artefact_request.served_at END",
+            (slug, query, name, kind, n_entries, now, now),
+        )
+        conn.commit()
+    except sqlite3.Error:
+        logger.warning("could not record an artefact request for %s", slug, exc_info=True)
+
+
+def open_requests(limit: int = 50) -> list[dict]:
+    """Unserved artefact requests, most-wanted first."""
+    rows = connect().execute(
+        "SELECT * FROM artefact_request WHERE served_at IS NULL "
+        "ORDER BY hits DESC, last_seen DESC LIMIT ?", (limit,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def mark_request_served(slug: str) -> None:
+    conn = connect()
+    conn.execute("UPDATE artefact_request SET served_at = ? WHERE slug = ?",
+                 (int(time.time()), slug))
+    conn.commit()
 
 
 # --------------------------------------------------------------------------------------

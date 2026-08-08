@@ -242,6 +242,11 @@ def decorate(fam: dict) -> dict:
 
     fam["contacts"] = _optional("contacts", lambda: _contacts_for(fam["slug"]), None)
 
+    # Ask a workstation for what this machine cannot build. Only the droplet ever needs
+    # this, but it costs one indexed upsert and guessing which machine we are on from
+    # inside the request path would be worse than doing it unconditionally.
+    _queue_missing_artefacts(fam, len(members))
+
     # After the msa, because the promotion needs conservation as well as contacts.
     _optional("metals", lambda: _promote_metals(fam, members), None)
 
@@ -307,6 +312,31 @@ def _embedding_for(slug: str) -> Optional[dict]:
     except Exception:
         logger.warning("could not read the embedding for %s", slug, exc_info=True)
         return None
+
+
+def _queue_missing_artefacts(fam: dict, n_entries: int) -> None:
+    """Record a family that is being served in its degraded form.
+
+    The map falls back to a sequence-identity placeholder and the contacts panel disappears
+    entirely, both without an error, because the artefacts they need are built on a
+    workstation and rsynced across. Nothing outside a pre-warmed list ever asked for them,
+    so a family a reader assembles is stuck that way until somebody happens to notice.
+    """
+    try:
+        from . import artefacts
+        st = artefacts.status(fam["slug"])
+        want = [k for k in ("embedding", "contacts") if not st[k]["current"]]
+        if not want:
+            return
+        db.request_artefact(
+            slug=fam["slug"],
+            query=fam.get("query") or fam.get("seed") or fam["slug"],
+            kind="both" if len(want) == 2 else want[0],
+            name=fam.get("name"),
+            n_entries=n_entries,
+        )
+    except Exception:
+        logger.warning("could not queue artefacts for %s", fam.get("slug"), exc_info=True)
 
 
 def _promote_metals(fam: dict, members: list[dict]) -> None:

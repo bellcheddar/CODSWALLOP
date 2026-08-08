@@ -14,6 +14,7 @@ to sit and watch a browser do it.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
 
@@ -327,6 +328,36 @@ def _report_artefacts() -> None:
               f"placeholder map{where}.")
 
 
+def cmd_queue(args) -> int:
+    """List, or resolve, the families a reader asked for that no workstation has built.
+
+    `--json` is what `deploy/drain_queue.sh` reads over SSH, so its shape is an interface:
+    one object per line rather than one array, so the reading end can stream it and a
+    truncated transfer loses a family instead of the whole queue.
+    """
+    db.init()
+    if args.served:
+        db.mark_request_served(args.served)
+        print(f"  marked {args.served} as served")
+        return 0
+
+    rows = db.open_requests(limit=args.limit)
+    if args.json:
+        for r in rows:
+            print(json.dumps({k: r[k] for k in ("slug", "query", "kind", "hits", "n_entries")}))
+        return 0
+    if not rows:
+        print("  the queue is empty: every family a reader has opened has its artefacts")
+        return 0
+    print(f"  {len(rows)} famil{'y' if len(rows) == 1 else 'ies'} waiting on a workstation:\n")
+    for r in rows:
+        print("  %-42s %-12s %-9s %4d hit%s %6s entries" % (
+            r["slug"], (r["query"] or "-")[:12], r["kind"], r["hits"],
+            " " if r["hits"] == 1 else "s", r["n_entries"] or "?"))
+    print("\n  Drain them with:  bash deploy/drain_queue.sh")
+    return 0
+
+
 def cmd_artefacts(args) -> int:
     """Report artefact state. Runs anywhere, including the droplet, which cannot build them.
 
@@ -417,6 +448,12 @@ def main(argv=None) -> int:
     sp = sub.add_parser("artefacts", help="which families have a current embedding/contacts")
     sp.add_argument("--missing", action="store_true", help="list only the stale ones")
     sp.set_defaults(fn=cmd_artefacts)
+
+    sp = sub.add_parser("queue", help="families a reader opened that need a workstation")
+    sp.add_argument("--json", action="store_true", help="one JSON object per line, for scripts")
+    sp.add_argument("--limit", type=int, default=50, help="how many to list")
+    sp.add_argument("--served", metavar="SLUG", help="mark one as built and pushed")
+    sp.set_defaults(fn=cmd_queue)
 
     sub.add_parser("stats", help="cache statistics").set_defaults(fn=cmd_stats)
     sub.add_parser("purge", help="drop expired cache entries").set_defaults(fn=cmd_purge)

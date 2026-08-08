@@ -1457,11 +1457,13 @@
             "at the nearest one by identity."
           : "");
     } else {
-      el.innerHTML = "<b>Placeholder layout.</b> Outward is decreasing identity to the seed, " +
-        "ranked; sector is source organism; size is 1/resolution; colour is method; an amber " +
-        "halo means ligand-bound. This family has no structural embedding yet: run " +
-        "<code>CODSWALLOP.py embed</code> on a workstation and the positions become a real " +
-        "TM-score embedding.";
+      el.innerHTML = "<b>Placeholder layout, not a structural measurement.</b> Outward is " +
+        "decreasing identity to the seed, ranked; sector is source organism; size is " +
+        "1/resolution; colour is method; an amber halo means ligand-bound. Everything else " +
+        "on this page is real. The embedding is not: it needs a pairwise TM-align of every " +
+        "representative against every other, which runs on a workstation and takes minutes " +
+        "to hours, so it cannot happen while you wait. <b>This family has been queued for " +
+        "it</b>, and the map becomes a real structural embedding once it has been built.";
     }
   }
 
