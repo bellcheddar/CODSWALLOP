@@ -385,3 +385,21 @@ def test_representatives_fall_back_when_the_seed_has_no_constructs():
     cs = [{"uniprot": "P00533", "n_entities": 9}, {"uniprot": "P00533", "n_entities": 4}]
     assert len(choose_representatives(cs, "Q99999", 5)) == 2
     assert len(choose_representatives(cs, "", 5)) == 2
+
+
+def test_representative_accession_agrees_with_the_construct_table():
+    """The two halves of the fix must count the subject the same way.
+
+    choose_representatives reads the construct's family-assigned accession while the
+    representative record was storing the member's first UniProt cross-reference. RCSB's
+    ordering is not meaningful, so A2A's own reference was picked from 12 candidates rather
+    than 36: a quota that selects on one definition and a reference that filters on another
+    silently narrows to their intersection.
+    """
+    import inspect
+    from codswallop import embed
+    src = inspect.getsource(embed.build)
+    marker = 'reps.append('
+    block = src[src.index(marker):src.index(marker) + 400]
+    assert 'c.get("uniprot")' in block, \
+        "representatives must carry the construct's accession, not the member's first xref"

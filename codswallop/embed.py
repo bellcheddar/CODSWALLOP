@@ -367,9 +367,15 @@ def build(fam: dict, max_representatives: int = MAX_REPRESENTATIVES,
         trace = ca_trace(pdb_id, chain)
         if trace is None:
             continue
+        # The construct's accession, which the family assigned, and not the member's first
+        # UniProt cross-reference. The order RCSB lists cross-references in is not
+        # meaningful: 4EIY, the classic A2A-BRIL structure, lists BRIL first, so 24 of A2A's
+        # 36 representatives did not look like A2A and the reference was chosen from 12
+        # candidates instead of 36. This is the same trap the construct diff already fell
+        # into with 2RH1 and T4 lysozyme.
         reps.append({"seq_id": c["seq_id"], "pdb_id": pdb_id, "chain": chain,
                      "n_entities": c["n_entities"],
-                     "uniprot": (member or {}).get("uniprot")})
+                     "uniprot": c.get("uniprot") or (member or {}).get("uniprot")})
         traces.append(trace)
 
     if len(reps) < 3:
