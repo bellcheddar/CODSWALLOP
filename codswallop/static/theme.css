@@ -983,3 +983,11 @@ a.dchip:hover { border-color: var(--accent); color: var(--text); text-decoration
   border-radius: var(--radius); overflow: hidden; background: var(--sky); position: relative;
 }
 .dmol .vmount { position: absolute; inset: 0; }
+
+/* Drugs. The brand names sit under the generic, quieter, because the generic is the name a
+   structure paper uses and the brand is the one a clinician does. */
+.drugrow { cursor: pointer; }
+.drugrow:hover { background: var(--surface-2); }
+.brands { display: block; font-size: 10.5px; color: var(--mute); margin-top: 2px; }
+.ctable .badge.tgt { border-color: var(--mint); color: var(--mint); }
+.caveat.warn { border-left-color: var(--amber); color: var(--dim); }

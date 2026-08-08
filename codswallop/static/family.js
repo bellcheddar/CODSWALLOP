@@ -2000,6 +2000,140 @@
       "</div>";
   }
 
+  /* ---- drugs -------------------------------------------------------------------------
+     The question a person starting on a target actually has: has anyone put a drug in this
+     pocket, and did it reach patients? Grouped by ATC, the WHO's own classification, rather
+     than by a set of categories invented here and then needing defending. */
+  var STAGE_TONE = {
+    "Approved": "ok", "Withdrawn": "poor", "Phase 4": "ok", "Phase 3": "check",
+    "Phase 2": "check", "Phase 1": "check", "Preclinical": "", "Unknown": ""
+  };
+  var drugFilter = "all";
+
+  function renderDrugs() {
+    var d = S.family.drugs || { n: 0, classes: [] };
+    if (!d.n) {
+      $("drugSub").textContent = "no drug-annotated components";
+      $("drugIntro").innerHTML = "";
+      $("drugClasses").innerHTML = '<p class="empty">None of this family\'s bound components ' +
+        "is linked to a drug in DrugBank. For a target nobody has prosecuted, that is the " +
+        "answer rather than a gap.</p>";
+      return;
+    }
+
+    $("drugSub").textContent = d.n + " drugs · " + d.n_approved + " approved · " +
+      d.n_on_target + " on target";
+    $("drugIntro").innerHTML =
+      '<p class="caveat"><b>On target</b> means this family\'s own protein is among the ' +
+      "drug's annotated targets, so it separates a molecule designed for this pocket from " +
+      "one that happens to sit in it: in carbonic anhydrase, acetazolamide is on target and " +
+      "glucose is not, though DrugBank knows both as drugs. Stage is DrugBank's approval " +
+      "status where there is one, and otherwise the highest phase any registered trial has " +
+      "taken the drug to, which is a ceiling rather than a status. Classes are ATC, the " +
+      "WHO's own scheme, and a drug used for two things appears under both.</p>" +
+      // A zero here is the one number on this panel that can mislead badly, so it explains
+      // itself rather than being left to read as a fact about the protein.
+      (d.n && !d.n_on_target
+        ? '<p class="caveat warn"><b>None of them is tied to this protein, and that is a ' +
+          "limit of the annotation rather than a statement about the target.</b> The link " +
+          "from a component to a drug comes from DrugBank through the RCSB, and its target " +
+          "lists lag for recently approved drugs: KRAS has two approved G12C inhibitors and " +
+          "not one of its 465 bound components is annotated against KRas. Read this panel " +
+          "as what the archive can currently prove, not as what has been tried.</p>"
+        : "");
+
+    var shown = d.classes.map(function (cl) {
+      var drugs = cl.drugs.filter(function (x) {
+        return drugFilter === "all" ||
+               (drugFilter === "target" && x.on_target) ||
+               (drugFilter === "approved" && x.stage === "Approved");
+      });
+      return { name: cl.name, drugs: drugs };
+    }).filter(function (cl) { return cl.drugs.length; });
+
+    if (!shown.length) {
+      $("drugClasses").innerHTML = '<p class="empty">Nothing passes that filter.</p>';
+      return;
+    }
+
+    $("drugClasses").innerHTML = shown.map(function (cl) {
+      var rows = cl.drugs.map(function (x) {
+        var brands = (x.brands || []).slice(0, 4).join(", ");
+        return '<tr class="drugrow" data-drug="' + esc(x.id) + '">' +
+          '<td class="n">' + esc(x.id) + "</td>" +
+          "<td><b>" + esc(x.generic || "") + "</b>" +
+            (brands ? '<span class="brands">' + esc(brands) + "</span>" : "") + "</td>" +
+          '<td><span class="verdict ' + (STAGE_TONE[x.stage] || "") + '"></span>' +
+            esc(x.stage) + "</td>" +
+          "<td>" + (x.on_target
+            ? '<span class="badge tgt">on target</span>'
+            : '<span class="n">incidental</span>') + "</td>" +
+          '<td class="n">' + commas(x.entries) + "</td>" +
+          '<td class="n">' + (x.best_resolution ? Number(x.best_resolution).toFixed(2) : "—") +
+          "</td></tr>";
+      }).join("");
+      return '<div class="csect"><h3>' + esc(cl.name) +
+        ' <span class="n">' + cl.drugs.length + "</span></h3>" +
+        '<div class="tablewrap"><table class="ctable"><thead><tr>' +
+        "<th>CCD</th><th>Drug</th><th>Stage</th><th>Target</th><th>Entities</th>" +
+        "<th>Best Å</th></tr></thead><tbody>" + rows + "</tbody></table></div></div>";
+    }).join("");
+  }
+
+  /* The drug drawer: everything DrugBank and the trial registry know, plus the molecule. */
+  function openDrugDetail(compId) {
+    var d = null;
+    ((S.family.drugs || {}).drugs || []).forEach(function (x) { if (x.id === compId) d = x; });
+    if (!d) return;
+
+    var body =
+      '<div class="dmol" id="detailMol"><p class="vstatus">Loading the molecule…</p></div>' +
+      dl([
+        ["Generic name", d.generic],
+        ["Brand names", (d.brands || []).join(", ")],
+        ["Stage", d.stage + " — " + d.stage_why],
+        ["Classes", (d.classes || []).join(", ")],
+        ["ATC", (d.atc || []).join(", ")],
+        ["Target", d.on_target
+          ? "this family's protein is an annotated target of this drug"
+          : "not annotated against this family's protein: it is bound here without being " +
+            "designed for it"],
+        ["Seen in", commas(d.entries) + " entities of this family"],
+        ["DrugBank", '<a href="https://go.drugbank.com/drugs/' +
+          encodeURIComponent(d.drugbank_id) + '" target="_blank" rel="noopener noreferrer">' +
+          esc(d.drugbank_id) + "</a>", "html"],
+        ["FDA (UNII)", d.unii
+          ? '<a href="https://drugs.ncats.io/drug/' + encodeURIComponent(d.unii) +
+            '" target="_blank" rel="noopener noreferrer">' + esc(d.unii) + "</a>"
+          : null, "html"],
+      ]) +
+      (d.targets && d.targets.length
+        ? '<div class="dsect"><h4>Annotated targets</h4><p>' + d.targets.map(function (t) {
+            return '<span class="dchip">' + esc(t.name) +
+              (t.action ? ' <span class="n">' + esc(t.action) + "</span>" : "") + "</span>";
+          }).join(" ") + "</p></div>"
+        : "") +
+      (d.trials
+        ? '<div class="dsect"><h4>Registered trials <span class="n">' + d.trials.n_studies +
+          "</span></h4><p>" + d.trials.by_phase.map(function (p) {
+            return '<span class="dchip">' + esc(p[0]) + ' <span class="n">' + p[1] + "</span></span>";
+          }).join(" ") + '</p><p class="caveat">From ClinicalTrials.gov, searched on the ' +
+          "intervention name. A trial that merely includes the drug counts, so this is what " +
+          "it has been taken into rather than what it is licensed for.</p></div>"
+        : "") +
+      (d.indication ? '<div class="dsect"><h4>Indication</h4><p>' + esc(d.indication) +
+        "</p></div>" : "") +
+      (d.mechanism ? '<div class="dsect"><h4>Mechanism</h4><p>' + esc(d.mechanism) +
+        "</p></div>" : "");
+
+    openDetail(d.generic || d.id, d.id + " · " + d.stage, body, function () {
+      var host = document.getElementById("detailMol");
+      if (!host || !window.CodswallopViewer) return;
+      window.CodswallopViewer.showLigand(host, d.id).then(function (v) { detailViewer = v; })
+        .catch(function () { host.innerHTML = ""; });
+    });
+  }
+
   function renderQuality() {
     var q = S.family.quality || { n: 0, rows: [] };
     if (!q.n) {
@@ -2546,6 +2680,7 @@
     renderAssembly();
     renderMotifs();
     renderTopology();
+    renderDrugs();
     renderKnownBlocks();
 
     recompute();
@@ -2596,14 +2731,27 @@
      time and one missed rebuild would leave a dead table. */
   function wireDetails() {
     document.addEventListener("click", function (ev) {
-      var row = ev.target.closest && ev.target.closest(".drow, tr[data-seq], tr.hotrow");
+      var row = ev.target.closest &&
+              ev.target.closest(".drow, .drugrow, tr[data-seq], tr.hotrow");
       if (!row) return;
       // A link inside the row is a link: let it navigate rather than opening the drawer.
       if (ev.target.closest("a")) return;
+      if (row.dataset.drug) return openDrugDetail(row.dataset.drug);
       if (row.dataset.comp) return openComponentDetail(row.dataset.comp);
       if (row.dataset.org) return openOrthologueDetail(row.dataset.org);
       if (row.dataset.pos) return openHotResidueDetail(Number(row.dataset.pos));
       if (row.dataset.seq) return openConstructDetail(row.dataset.seq);
+    });
+    ["dgAll", "dgTarget", "dgApproved"].forEach(function (id) {
+      var b = $(id);
+      if (!b) return;
+      b.addEventListener("click", function () {
+        drugFilter = id === "dgAll" ? "all" : (id === "dgTarget" ? "target" : "approved");
+        ["dgAll", "dgTarget", "dgApproved"].forEach(function (o) {
+          $(o).setAttribute("aria-pressed", o === id ? "true" : "false");
+        });
+        renderDrugs();
+      });
     });
     $("detailClose").addEventListener("click", closeDetail);
     document.addEventListener("keydown", function (ev) {

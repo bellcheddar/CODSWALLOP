@@ -487,3 +487,50 @@ def test_hot_residues_carry_their_own_type_breakdown():
     # Counted over distinct entries, not contact rows: one entry with forty contacts is not
     # forty entries.
     assert '"entries": len(res_entries[pos])' in src
+
+
+# ---- drugs ---------------------------------------------------------------------------
+def test_a_drug_is_filed_under_every_class_it_belongs_to():
+    """Taking the first ATC code filed acetazolamide, the best-known carbonic anhydrase
+    inhibitor there is, under "genito-urinary": G01AE10 happens to sort before S01EC01."""
+    from codswallop.drugs import therapeutic_classes
+    got = therapeutic_classes(["G01AE10", "S01EC01"])
+    assert "Genito-urinary & sex hormones" in got and "Sensory organs" in got
+
+
+def test_anti_infective_and_antineoplastic_split_at_the_second_level():
+    """"Anti-infective" hides the difference between an antibacterial and an antiviral."""
+    from codswallop.drugs import therapeutic_classes
+    assert therapeutic_classes(["J01CA04"]) == ["Antibacterial"]
+    assert therapeutic_classes(["J05AP01"]) == ["Antiviral"]
+    assert therapeutic_classes(["L01EA01"]) == ["Oncology"]
+    assert therapeutic_classes(["L04AA01"]) == ["Immunology (suppressant)"]
+    assert therapeutic_classes([]) == ["Unclassified"]
+
+
+def test_an_isoform_number_is_not_a_substring_match():
+    """"Carbonic anhydrase 2" and "Carbonic anhydrase 12" are different proteins, and a
+    naive substring test makes 2 match 12."""
+    from codswallop.drugs import on_target
+    fam = {"name": "Carbonic anhydrase 2"}
+    assert on_target([{"name": "Carbonic anhydrase 12"}], fam) == "annotated", \
+        "across a family assembled at 30% identity, an isoform is on target"
+    assert on_target([{"name": "GTPase HRas"}], {"name": "GTPase KRas"}) is None
+
+
+def test_a_described_tie_is_not_reported_as_an_annotated_one():
+    """The text match is the weaker signal and has to stay labelled as such: DrugBank's
+    target lists lag, and KRAS has approved inhibitors with no annotation at all."""
+    from codswallop.drugs import on_target
+    fam = {"name": "Carbonic anhydrase 2"}
+    assert on_target([], fam, "inhibits carbonic anhydrase in the proximal tubule") == "described"
+    assert on_target([], fam, "an antibiotic that binds the ribosome") is None
+
+
+def test_the_stage_ladder_prefers_the_strongest_evidence():
+    from codswallop.drugs import _stage
+    assert _stage(["approved", "investigational"], {"phase": "Phase 1", "n_studies": 3})[0] \
+        == "Approved", "an approved drug is approved whatever its trials say"
+    assert _stage(["investigational"], {"phase": "Phase 3", "n_studies": 9})[0] == "Phase 3"
+    assert _stage(["experimental"], None)[0] == "Preclinical"
+    assert _stage([], None)[0] == "Unknown"

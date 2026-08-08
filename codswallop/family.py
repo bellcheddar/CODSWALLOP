@@ -257,6 +257,10 @@ def decorate(fam: dict) -> dict:
 
     fam["contacts"] = _optional("contacts", lambda: _contacts_for(fam["slug"]), None)
     fam["topology"] = _optional("topology", lambda: _topology_for(fam["slug"]), None)
+    # After ligands: it reads the classified component list rather than the raw one, so a
+    # buffer never gets a DrugBank lookup.
+    fam["drugs"] = _optional("drugs", lambda: _drugs_for(fam),
+                             {"n": 0, "classes": [], "drugs": []})
 
     # Ask a workstation for what this machine cannot build. Only the droplet ever needs
     # this, but it costs one indexed upsert and guessing which machine we are on from
@@ -328,6 +332,11 @@ def _embedding_for(slug: str) -> Optional[dict]:
     except Exception:
         logger.warning("could not read the embedding for %s", slug, exc_info=True)
         return None
+
+
+def _drugs_for(fam: dict) -> dict:
+    from . import drugs as drug_engine
+    return drug_engine.build(fam)
 
 
 def _topology_for(slug: str) -> Optional[dict]:

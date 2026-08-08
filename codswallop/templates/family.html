@@ -23,8 +23,8 @@
     </button>
     {% endfor %}
     <p class="railnote">
-      The pip on each divider is the build phase it lands in. Phase&nbsp;1 sections are
-      live; the rest name what will be filed there.
+      Each divider opens one panel of the same family. The filters at the top of the
+      overview apply throughout: narrow the family once and every section follows.
     </p>
   </nav>
 
@@ -374,6 +374,25 @@
           <div id="pocketBlock"></div>
           <div id="motifIntro"></div>
           <div id="motifTable"></div>
+        </div>
+      </div>
+    </section>
+
+    {# ---- drugs -------------------------------------------------------------------- #}
+    <section id="sec-drugs" class="section" role="tabpanel" hidden>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Drugs in this pocket</h2>
+          <span class="sub" id="drugSub"></span>
+          <div class="seg" role="group" aria-label="Filter drugs">
+            <button type="button" id="dgAll" aria-pressed="true">All</button>
+            <button type="button" id="dgTarget" aria-pressed="false">On target</button>
+            <button type="button" id="dgApproved" aria-pressed="false">Approved</button>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div id="drugIntro"></div>
+          <div id="drugClasses"></div>
         </div>
       </div>
     </section>
