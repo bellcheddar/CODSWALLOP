@@ -389,8 +389,13 @@
         ')</h3><div class="liglist">' + m.ligands.map(function (id) {
           var comp = S.family.components[id] || {};
           var real = NON_LIGANDS.indexOf(id) < 0;
+          var img = (comp.klass === "ion" || comp.klass === "water" || !comp.name)
+            ? ""
+            : '<img class="ccd sm" loading="lazy" width="34" height="34" alt="" src="' +
+              "https://cdn.rcsb.org/images/ccd/unlabeled/" + esc(id.charAt(0)) + "/" +
+              esc(id) + '.svg">';
           return '<span class="lig' + (real ? " real" : "") + '" title="' +
-            esc(comp.name || "") + '">' + esc(id) + "</span>";
+            esc(comp.name || "") + '">' + img + esc(id) + "</span>";
         }).join("") + "</div>" +
         '<p style="color:var(--mute);font-size:11px;margin:8px 0 0">' +
         "Amber components are not on the buffer, ion and cryoprotectant list. " +
@@ -1103,6 +1108,7 @@
     }
     var rows = comps.slice(0, 400).map(function (c) {
       return "<tr>" +
+        '<td class="dep">' + depiction(c) + "</td>" +
         '<td class="n"><a href="https://www.rcsb.org/ligand/' + esc(c.id) +
           '" target="_blank" rel="noopener noreferrer">' + esc(c.id) + "</a></td>" +
         '<td class="n">' + commas(c.count) + "</td>" +
@@ -1115,12 +1121,41 @@
     }).join("");
     $("ligandTable").innerHTML =
       '<div class="tablewrap"><table class="ctable"><thead><tr>' +
-      "<th>CCD</th><th>Entries</th><th>Best Å</th><th>Class</th><th>Name</th><th>Formula</th>" +
+      "<th></th><th>CCD</th><th>Entries</th><th>Best Å</th><th>Class</th><th>Name</th>" +
+      "<th>Formula</th>" +
       "</tr></thead><tbody>" + rows + "</tbody></table></div>" +
-      '<p class="caveat">Metals are classified as ions. Whether a metal is structural or ' +
-      "catalytic depends on the protein, not the component: the zinc in carbonic anhydrase " +
-      "is a catalytic cofactor filed here as an ion. " +
-      "&ldquo;Ligand-bound&rdquo; on the overview counts ligands and cofactors only.</p>";
+      '<p class="caveat">' + metalNote(L) +
+      " &ldquo;Ligand-bound&rdquo; on the overview counts ligands and cofactors only.</p>";
+  }
+
+  /* The RCSB's own 2D depiction for a chemical component. Lazy, because a family can hold
+     800 of them and eight hundred simultaneous image requests is not a page load. */
+  function depiction(c) {
+    if (c.klass === "ion" || c.klass === "water") return "";
+    var id = esc(c.id);
+    return '<img class="ccd" loading="lazy" width="52" height="52" alt="" ' +
+      'src="https://cdn.rcsb.org/images/ccd/unlabeled/' + id.charAt(0) + "/" + id +
+      '.svg" title="' + id + '">';
+  }
+
+  /* What the panel says about metals now depends on whether the interaction data was there
+     to settle it. This used to be a flat admission that the classification was wrong for
+     catalytic metals; it is now either the evidence or the absence of it. */
+  function metalNote(L) {
+    if (L.promoted_metals && L.promoted_metals.length) {
+      var promoted = L.components.filter(function (c) { return c.promoted; });
+      return "Metals are classified as ions unless the interaction data shows otherwise. " +
+        promoted.map(function (c) {
+          return "<b>" + esc(c.id) + "</b> was promoted to cofactor: " + esc(c.reason) + ".";
+        }).join(" ");
+    }
+    if (S.family.contacts) {
+      return "Metals are classified as ions. None in this family is coordinated by enough " +
+        "conserved residues to read as a catalytic centre, on the PLIP contacts.";
+    }
+    return "Metals are classified as ions. Whether a metal is structural or catalytic " +
+      "depends on the protein rather than the component, and settling it needs the " +
+      "interaction data: run <code>CODSWALLOP.py contacts</code> for this family.";
   }
 
   function renderCrystals() {
@@ -1266,6 +1301,34 @@
       (q.median_clashscore == null ? "—" : q.median_clashscore) + ", RSRZ " +
       (q.median_rsrz == null ? "—" : q.median_rsrz) + "&nbsp;%, R gap " +
       (q.median_r_gap == null ? "—" : q.median_r_gap) + ".</p>";
+  }
+
+  /* Clicking a hot residue focuses it in the viewer, which is the half of "mapped back onto
+     the alignment and onto Mol*" that the conservation column does not already cover. If no
+     viewer is open, one is opened on the family's best entry first. */
+  function focusHotResidue(pos, row) {
+    $("hotResidues").querySelectorAll(".hotrow").forEach(function (r) {
+      r.classList.toggle("on", r === row);
+    });
+    var note = function (msg) { $("contactSub").setAttribute("title", msg); };
+
+    function go() {
+      var ok = window.CodswallopViewer.focusResidue(currentViewer, pos);
+      if (!ok) note("Could not locate residue " + pos + " in the loaded structure.");
+    }
+    if (currentViewer) { go(); return; }
+
+    // Open the best entry, then focus. The reader clicked a residue, not a structure, so
+    // making them load one first would be a step they did not ask for.
+    var best = S.members.find(function (m) { return S.visible.has(m.entity_id); });
+    if (!best) return;
+    var pick = $("structurePick");
+    if (pick) pick.value = best.pdb_id;
+    window.CodswallopViewer.show($("structureHost"), best.pdb_id).then(function (v) {
+      currentViewer = v;
+      $("structureHost").dataset.loaded = "1";
+      setTimeout(go, 400);
+    });
   }
 
   function wirePhase3() {
@@ -1424,12 +1487,27 @@
     if (S.family.msa && S.family.msa.columns) {
       S.family.msa.columns.forEach(function (col) { cons[col.pos] = col.conservation; });
     }
-    $("hotResidues").innerHTML = table2(
-      ["Residue", "Contacts", "Entries", "Conservation"],
+    $("hotResidues").innerHTML =
+      '<div class="tablewrap"><table class="ctable"><thead><tr>' +
+      "<th>Residue</th><th>Contacts</th><th>Entries</th><th>Conservation</th>" +
+      "</tr></thead><tbody>" +
       c.hot_residues.slice(0, 40).map(function (h) {
-        return [(h.restype || "") + h.pos, commas(h.contacts), commas(h.entries),
-                cons[h.pos] == null ? "—" : cons[h.pos].toFixed(3)];
-      }), [1, 2, 3]);
+        return '<tr class="hotrow" data-pos="' + h.pos + '">' +
+          '<td class="n">' + esc((h.restype || "") + h.pos) + "</td>" +
+          '<td class="n">' + commas(h.contacts) + "</td>" +
+          '<td class="n">' + commas(h.entries) + "</td>" +
+          '<td class="n">' + (cons[h.pos] == null ? "—" : cons[h.pos].toFixed(3)) +
+          "</td></tr>";
+      }).join("") + "</tbody></table></div>" +
+      '<p class="caveat">Click a residue to focus it in the 3D viewer. Positions are seed ' +
+      "coordinates; the viewer is showing one entry's own numbering, so a construct with a " +
+      "different offset may focus a neighbouring residue.</p>";
+
+    $("hotResidues").querySelectorAll(".hotrow").forEach(function (row) {
+      row.addEventListener("click", function () {
+        focusHotResidue(Number(row.dataset.pos), row);
+      });
+    });
 
     renderFingerprint(c);
   }

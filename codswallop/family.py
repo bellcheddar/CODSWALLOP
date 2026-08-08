@@ -241,6 +241,9 @@ def decorate(fam: dict) -> dict:
 
     fam["contacts"] = _optional("contacts", lambda: _contacts_for(fam["slug"]), None)
 
+    # After the msa, because the promotion needs conservation as well as contacts.
+    _optional("metals", lambda: _promote_metals(fam, members), None)
+
     fam["domains"] = _optional("domains", lambda: build_domains(fam, members),
                                {"sources": [], "domains": []})
     fam["orthologues"] = _optional(
@@ -303,6 +306,47 @@ def _embedding_for(slug: str) -> Optional[dict]:
     except Exception:
         logger.warning("could not read the embedding for %s", slug, exc_info=True)
         return None
+
+
+def _promote_metals(fam: dict, members: list[dict]) -> None:
+    """Let the interaction data decide whether this family's metals are catalytic.
+
+    Retires the caveat the Ligands panel used to print. A metal coordinated by several
+    conserved residues is the catalytic centre and counts as ligand-bound; one with a couple
+    of surface contacts is crystallisation chemistry and does not. The evidence is per
+    family, which is the only level at which the question has an answer.
+    """
+    lig = fam.get("ligands")
+    contacts = fam.get("contacts")
+    if not lig or not lig.get("components") or not contacts:
+        return
+
+    conservation = {}
+    msa = fam.get("msa")
+    if msa and msa.get("columns"):
+        conservation = {c["pos"]: c["conservation"] for c in msa["columns"]
+                        if c["conservation"] is not None}
+
+    before = {c["id"]: c["klass"] for c in lig["components"]}
+    ligand_engine.promote_catalytic_metals(lig["components"], contacts, conservation)
+    promoted = [c["id"] for c in lig["components"]
+                if c.get("promoted") and before.get(c["id"]) != c["klass"]]
+    if not promoted:
+        return
+
+    # Recount what "ligand-bound" means now that the metals have moved.
+    lig["by_class"] = {}
+    for c in lig["components"]:
+        lig["by_class"][c["klass"]] = lig["by_class"].get(c["klass"], 0) + 1
+    lig["promoted_metals"] = promoted
+
+    klass = {c["id"]: c["klass"] for c in lig["components"]}
+    for m in members:
+        m["has_ligand"] = any(
+            klass.get((lid or "").upper()) in ligand_engine.COUNTS_AS_BOUND
+            for lid in (m.get("ligands") or [])
+        )
+    fam["stats"]["holo_entries"] = sum(1 for m in members if m["has_ligand"])
 
 
 def _contacts_for(slug: str) -> Optional[dict]:

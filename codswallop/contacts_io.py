@@ -16,7 +16,7 @@ from . import config
 
 logger = logging.getLogger(__name__)
 
-VERSION = 1
+VERSION = 2
 CONTACT_DIR = config.DATA_DIR / "contacts"
 
 

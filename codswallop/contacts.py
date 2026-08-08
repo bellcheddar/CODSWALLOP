@@ -238,6 +238,18 @@ def build(fam: dict, max_entries: int = 60, progress=None) -> Optional[dict]:
         lig_res[r["ligand"]][r["seed_pos"]] += 1
         restype_of.setdefault(r["seed_pos"], r["restype"])
 
+    # Metal coordination, kept separate from the rest of the fingerprint. Whether a metal is
+    # a structural ion or the catalytic centre is a property of the PROTEIN, not of the
+    # component, and this is the evidence that decides it per family: which residues
+    # coordinate it, and in how many entries.
+    metal_coord: dict = defaultdict(Counter)
+    metal_entries: dict = defaultdict(set)
+    for r in all_rows:
+        if r["type"] != "metal_complex":
+            continue
+        metal_coord[r["ligand"]][r["seed_pos"]] += 1
+        metal_entries[r["ligand"]].add(r["pdb_id"])
+
     hot = [{"pos": pos, "restype": restype_of.get(pos, ""), "contacts": n,
             "entries": len({r["pdb_id"] for r in all_rows if r["seed_pos"] == pos})}
            for pos, n in per_residue.most_common(60)]
@@ -261,6 +273,14 @@ def build(fam: dict, max_entries: int = 60, progress=None) -> Optional[dict]:
         "ligands": top_ligands,
         "fingerprint": fingerprint,
         "positions": [pos for pos, _ in per_residue.most_common(40)],
+        "metal_coordination": {
+            lig: {
+                "residues": [{"pos": pos, "restype": restype_of.get(pos, ""), "n": n}
+                             for pos, n in coords.most_common(12)],
+                "entries": len(metal_entries[lig]),
+            }
+            for lig, coords in metal_coord.items()
+        },
     }
     artefact_path(fam["slug"]).write_text(json.dumps(artefact, separators=(",", ":")))
     return artefact

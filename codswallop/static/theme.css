@@ -833,3 +833,13 @@ footer.site .sources { margin-top: 7px; }
 .fptable td.n { font-family: var(--mono); color: var(--amber); text-align: left;
   border-color: var(--line); }
 .fptable td.fp { color: var(--text); }
+.ctable tr.hotrow { cursor: pointer; }
+.ctable tr.hotrow:hover td { background: var(--surface-2); }
+.ctable tr.hotrow.on td { background: var(--surface-2); box-shadow: inset 3px 0 0 var(--brass); }
+
+/* ---- CCD depictions ------------------------------------------------------------------ */
+.ccd { background: #fff; border-radius: 4px; padding: 2px; vertical-align: middle;
+  border: 1px solid var(--line); }
+.ccd.sm { width: 34px; height: 34px; margin-right: 5px; }
+.ctable td.dep { width: 60px; padding-right: 8px; }
+.liglist .lig { display: inline-flex; align-items: center; }

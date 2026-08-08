@@ -283,3 +283,36 @@ def test_artefact_survey_flags_a_wrong_version_as_stale(tmp_path, monkeypatch):
     assert st["embedding"]["present"] is True
     assert st["embedding"]["current"] is False, "an old version must not read as present"
     assert [s["slug"] for s in artefacts.stale("embedding")] == ["fam"]
+
+
+def test_a_metal_seen_once_is_not_promoted_to_a_cofactor():
+    """A heavy-atom derivative is not a catalytic centre.
+
+    Mercury was promoted in carbonic anhydrase II on the strength of a single entry: soaked
+    in for phasing and coordinated by whatever was nearby. A catalytic metal is present
+    every time somebody solves the protein.
+    """
+    comps = [{"id": "HG", "klass": "ion"}, {"id": "ZN", "klass": "ion"}]
+    contacts = {"metal_coordination": {
+        "HG": {"entries": 1, "residues": [{"pos": p, "restype": "CYS", "n": 1}
+                                          for p in (10, 20, 30)]},
+        "ZN": {"entries": 40, "residues": [{"pos": p, "restype": "HIS", "n": 30}
+                                           for p in (94, 96, 119)]},
+    }}
+    conservation = {10: 0.99, 20: 0.99, 30: 0.99, 94: 0.98, 96: 0.99, 119: 0.99}
+    out = ligands.promote_catalytic_metals(comps, contacts, conservation)
+    by = {c["id"]: c for c in out}
+    assert by["ZN"]["klass"] == "cofactor"
+    assert by["HG"]["klass"] == "ion", "one entry is not evidence"
+
+
+def test_water_does_not_count_as_a_coordinating_residue():
+    comps = [{"id": "ZN", "klass": "ion"}]
+    contacts = {"metal_coordination": {"ZN": {
+        "entries": 40,
+        "residues": [{"pos": 94, "restype": "HIS", "n": 30},
+                     {"pos": 421, "restype": "HOH", "n": 30},
+                     {"pos": 422, "restype": "HOH", "n": 30}],
+    }}}
+    out = ligands.promote_catalytic_metals(comps, contacts, {94: 0.99, 421: 0.99, 422: 0.99})
+    assert out[0]["klass"] == "ion", "two waters and a histidine is not a metal site"

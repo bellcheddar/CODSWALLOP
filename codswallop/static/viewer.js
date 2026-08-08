@@ -285,7 +285,43 @@
       });
   }
 
+  /**
+   * Highlight and focus one residue (by author sequence number) in an open viewer.
+   *
+   * Uses Mol*'s own loci machinery rather than a representation of its own: the interaction
+   * selection is transient, and adding a permanent component for every click would leave a
+   * state tree full of them.
+   */
+  function focusResidue(viewer, seqNumber) {
+    var plugin = viewer.plugin;
+    var lib = molstarRef && molstarRef.lib;
+    if (!lib) return false;
+    try {
+      var data = plugin.managers.structure.hierarchy.current.structures[0];
+      if (!data || !data.cell || !data.cell.obj) return false;
+      var struct = data.cell.obj.data;
+
+      var Q = lib.structure.Script;
+      var sel = Q.getStructureSelection(function (Qb) {
+        return Qb.struct.generator.atomGroups({
+          "residue-test": Qb.core.rel.eq([
+            Qb.struct.atomProperty.macromolecular.auth_seq_id(), seqNumber,
+          ]),
+        });
+      }, struct);
+      var loci = lib.structure.StructureSelection.toLociWithSourceUnits(sel);
+      if (!loci || loci.kind === "empty-loci") return false;
+
+      plugin.managers.interactivity.lociSelects.selectOnly({ loci: loci });
+      plugin.managers.camera.focusLoci(loci);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   global.CodswallopViewer = {
     show: show, ensure: ensureMolstar, superpose: superpose, addAlphaFold: addAlphaFold,
+    focusResidue: focusResidue,
   };
 })(window);

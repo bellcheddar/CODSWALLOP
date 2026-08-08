@@ -78,17 +78,66 @@ CLASS_ORDER = ["ligand", "cofactor", "lipid/detergent", "ion", "buffer",
 # What "ligand-bound" should mean on the overview: something somebody put there on purpose.
 COUNTS_AS_BOUND = {"ligand", "cofactor"}
 
-# A caveat this module cannot resolve on its own, and states rather than papers over: whether
-# a metal is a structural ion or the catalytic cofactor is a property of the PROTEIN, not of
-# the component. Zinc is filed here as an ion, which is right for the many proteins that
-# merely have one bound and wrong for carbonic anhydrase, where it is the catalytic centre.
-# Deciding per family needs the UniProt binding-site annotations (already fetched for the
-# construct diff) cross-referenced against the component's contacts, which is Phase 3's
-# interaction work. Until then the class is shown on every component so a reader can see the
-# call that was made rather than only its consequence.
-METAL_CAVEAT = ("Metals are classified as ions. Whether a metal is structural or catalytic "
-                "depends on the protein, not the component: the zinc in carbonic anhydrase "
-                "is a catalytic cofactor filed here as an ion.")
+# Whether a metal is a structural ion or the catalytic centre is a property of the PROTEIN,
+# not of the component, so the table above cannot settle it: zinc is an incidental ion in
+# most proteins and the catalytic centre in carbonic anhydrase. `promote_catalytic_metals`
+# below decides it per family from the PLIP contacts, which is the evidence that actually
+# answers the question. Families with no contacts artefact keep the table's answer, and the
+# panel says which of the two a reader is looking at.
+
+# A metal is promoted to cofactor when it is coordinated by at least this many distinct
+# residues whose mean conservation clears the threshold. Both conditions matter: three
+# coordinating residues is the geometry of a real metal site rather than a surface contact,
+# and conservation is what separates a site the family maintains from one crystallisation
+# happened to produce. Carbonic anhydrase II's zinc is coordinated by His94, His96 and
+# His119 at 0.979, 0.991 and 0.986.
+CATALYTIC_MIN_RESIDUES = 3
+CATALYTIC_MIN_CONSERVATION = 0.90
+# And it has to be seen in more than a handful of structures. Without this, mercury was
+# promoted to cofactor in carbonic anhydrase II on the strength of ONE entry: a heavy-atom
+# derivative soaked in for phasing, coordinated by whatever happened to be nearby. A
+# catalytic metal is in the protein every time somebody solves it.
+CATALYTIC_MIN_ENTRIES = 5
+
+
+def promote_catalytic_metals(components: list[dict], contacts: Optional[dict],
+                             conservation: Optional[dict]) -> list[dict]:
+    """Reclassify metals that the interaction data shows to be catalytic.
+
+    Returns the components, each metal that qualifies moved from "ion" to "cofactor" with a
+    `reason` naming the residues that coordinate it, so the call is visible rather than
+    being an unexplained difference between two families.
+    """
+    if not contacts or not contacts.get("metal_coordination"):
+        return components
+    coord = contacts["metal_coordination"]
+
+    for c in components:
+        if c["klass"] != "ion" or c["id"] not in coord:
+            continue
+        entry = coord[c["id"]]
+        residues = entry["residues"]
+        if len(residues) < CATALYTIC_MIN_RESIDUES or entry["entries"] < CATALYTIC_MIN_ENTRIES:
+            continue
+        # Water is not a coordinating residue of the protein; PLIP reports it as one.
+        residues = [r for r in residues if r["restype"] not in ("HOH", "DOD")]
+        if len(residues) < CATALYTIC_MIN_RESIDUES:
+            continue
+        scores = [conservation.get(r["pos"]) for r in residues] if conservation else []
+        scores = [x for x in scores if x is not None]
+        if not scores or sum(scores) / len(scores) < CATALYTIC_MIN_CONSERVATION:
+            continue
+        # Positions are seed coordinates, which for many families differ by a residue or two
+        # from the author numbering a reader knows the site by (carbonic anhydrase II's zinc
+        # ligands are His94/96/119 in author numbering). Named as approximate rather than
+        # printed as though they were the canonical labels.
+        names = ", ".join(f"{r['restype']}{r['pos']}" for r in residues[:4])
+        c["klass"] = "cofactor"
+        c["promoted"] = True
+        c["reason"] = (f"coordinated by {names} (seed numbering) across "
+                       f"{entry['entries']} entries; those residues average "
+                       f"{sum(scores) / len(scores):.3f} conservation")
+    return components
 
 
 def classify(comp_id: str, name: Optional[str] = None,
