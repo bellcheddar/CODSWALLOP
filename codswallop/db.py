@@ -416,8 +416,13 @@ def family_row(slug: str) -> Optional[dict]:
     return dict(row) if row else None
 
 
-def recent_families(limit: int = 12) -> list[dict]:
-    """Most recently assembled families, for the landing page's drawer of previous work."""
+def recent_families(limit: int = 60) -> list[dict]:
+    """Most recently assembled families, for the landing page's drawer of previous work.
+
+    Sixty rather than twelve. The list is the only route into anything already filed, and a
+    cap of twelve hid two thirds of the archive behind a search box for a name the reader
+    would have to already know.
+    """
     rows = connect().execute(
         "SELECT f.slug, f.name, f.organism, f.kind, f.built_at, "
         "       (SELECT COUNT(*) FROM entry e WHERE e.slug = f.slug) AS n_entries "

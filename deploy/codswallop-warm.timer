@@ -1,11 +1,16 @@
-# The PDB releases on Wednesday 00:00 UTC. Warming a few hours later means the week's new
-# entries are already filed before anyone looks, and the one-week cache TTL lines up with
-# the release cycle rather than cutting across it.
+# Daily, at 03:30 UTC.
+#
+# The PDB itself releases on Wednesday 00:00 UTC, so a weekly warm timed to that was enough
+# to keep the archive's own content fresh. It is not enough to keep the *app* fresh: a
+# pipeline version bump stales every family at once and can land on any day, a family a
+# reader assembles needs its artefacts before the next visit rather than by Wednesday, and
+# the drug enrichment is only ever fetched by a warm. Daily costs a few minutes of a quiet
+# box and removes "wait until Wednesday" as an answer.
 [Unit]
-Description=Weekly CODSWALLOP cache warm, after the PDB release
+Description=Daily CODSWALLOP cache warm
 
 [Timer]
-OnCalendar=Wed 03:30 UTC
+OnCalendar=*-*-* 03:30 UTC
 Persistent=true
 RandomizedDelaySec=900
 
