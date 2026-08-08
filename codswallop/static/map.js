@@ -314,19 +314,26 @@
         // so it stopped every node from being openable while leaving hover working: the map
         // looked half alive. Selection is refused below on the events that actually start
         // one, which costs nothing else.
-        drag = { x: ev.clientX, y: ev.clientY, moved: 0, id: ev.pointerId,
+        drag = { x: ev.clientX, y: ev.clientY, moved: 0, id: ev.pointerId, captured: false,
                  yaw: self.yaw || 0, pitch: self.pitch || 0 };
-        // Capture keeps the drag alive when the cursor leaves the panel mid-turn. It throws
-        // for a pointer id the browser has no active pointer for, so it must not be allowed
-        // to take the rest of the handler down with it: without the guard the drag was
-        // never registered at all.
-        try { svg.setPointerCapture(ev.pointerId); } catch (e) { /* carry on uncaptured */ }
+        // Deliberately NOT capturing here. While an element holds the pointer, the click
+        // that follows is retargeted to the capturing element, so `ev.target.closest(".node")`
+        // in the click handler found the <svg> and nothing was ever openable. Capture is
+        // taken below, once the pointer has actually moved far enough to be a drag, which
+        // is the only case that needs it.
         svg.style.cursor = "grabbing";
       };
       svg.onpointermove = function (ev) {
         if (!drag) return;
         var dx = ev.clientX - drag.x, dy = ev.clientY - drag.y;
         drag.moved = Math.max(drag.moved, Math.abs(dx) + Math.abs(dy));
+        if (!drag.captured && drag.moved > 4) {
+          // Now it is a drag: capture so it survives the cursor leaving the panel. It
+          // throws for a pointer id with no active pointer, and must not take the handler
+          // down with it.
+          drag.captured = true;
+          try { svg.setPointerCapture(ev.pointerId); } catch (e) { /* carry on uncaptured */ }
+        }
         self.yaw = drag.yaw + dx * 0.008;
         // Clamped, so the map cannot be turned upside down and lose its own axis labels.
         self.pitch = Math.max(-1.2, Math.min(1.2, drag.pitch + dy * 0.008));
@@ -342,7 +349,9 @@
         var wasDrag = drag.moved > 4;
         drag = null;
         svg.style.cursor = "grab";
-        try { svg.releasePointerCapture(ev.pointerId); } catch (e) { /* already released */ }
+        if (wasDrag) {
+          try { svg.releasePointerCapture(ev.pointerId); } catch (e) { /* already released */ }
+        }
         // Swallow the click that follows a real drag, so letting go over a node does not
         // also open it.
         if (wasDrag) {
