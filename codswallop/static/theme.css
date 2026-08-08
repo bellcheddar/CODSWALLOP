@@ -417,6 +417,17 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .hero.table-mode .field, .hero.table-mode .entrylist { display: none; }
 
 .field { background: var(--sky); position: relative; min-height: 460px; }
+
+/* Dragging the map rotates it, so the browser must not also try to select through it: a
+   drag otherwise paints a blue selection across the field and any label it crosses.
+   `touch-action: none` is the same statement for a finger, which would otherwise scroll the
+   page instead of turning the map. Scoped to the field alone, so every label, table and
+   sequence elsewhere on the page stays selectable. */
+.field, .field svg {
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: none;
+}
 .field svg { display: block; width: 100%; height: 100%; }
 .field .fieldnote {
   position: absolute; left: 12px; bottom: 10px; right: 12px;

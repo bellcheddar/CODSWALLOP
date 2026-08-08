@@ -305,6 +305,10 @@
       svg.style.cursor = "grab";
       svg.onpointerdown = function (ev) {
         if (ev.button !== 0) return;
+        // Stops the native drag-select that would otherwise begin the moment the pointer
+        // moves. The CSS above covers the field; this covers the gesture itself, including
+        // the ghost-image drag a browser starts on an SVG child.
+        ev.preventDefault();
         drag = { x: ev.clientX, y: ev.clientY, moved: 0, id: ev.pointerId,
                  yaw: self.yaw || 0, pitch: self.pitch || 0 };
         // Capture keeps the drag alive when the cursor leaves the panel mid-turn. It throws
