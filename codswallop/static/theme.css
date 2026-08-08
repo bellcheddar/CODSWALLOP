@@ -807,3 +807,18 @@ footer.site .sources { margin-top: 7px; }
   border-radius: 7px; padding: 5px 9px; font-family: var(--mono); font-size: 11.5px;
   max-width: 340px; }
 .picker:focus { border-color: var(--accent); outline: none; }
+
+/* ---- TM-score matrix ---------------------------------------------------------------- */
+.tmwrap { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
+.tmcanvas { border: 1px solid var(--line); border-radius: 6px; display: block; cursor: crosshair; }
+.tmclusters { flex: 1; min-width: 220px; max-height: 620px; overflow-y: auto; }
+.tmclusters h4 { font-size: 10px; text-transform: uppercase; letter-spacing: .1em;
+  color: var(--mute); margin: 0 0 8px; font-family: var(--sans); font-weight: 600; }
+.tmgroup { border: 1px solid var(--line); border-left: 3px solid var(--accent);
+  border-radius: 6px; padding: 7px 10px; margin-bottom: 7px; cursor: pointer;
+  background: var(--sky); }
+.tmgroup:hover { border-left-color: var(--brass); background: var(--surface-2); }
+.tmgroup .n { font-family: var(--mono); font-size: 12.5px; color: var(--text); }
+.tmgroup .ids { font-family: var(--mono); font-size: 10.5px; color: var(--mute);
+  margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tmgroup.on { border-left-color: var(--brass); background: var(--surface-2); }

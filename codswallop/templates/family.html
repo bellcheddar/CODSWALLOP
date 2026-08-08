@@ -222,12 +222,29 @@
             <p class="vstatus">Pick an entry, or press Show, to load the viewer.</p>
           </div>
           <p class="caveat">
-            Mol&#42; is fetched on demand (5&nbsp;MB, once per visit) and reads the structure
+            Mol&#42; is fetched on demand (5&nbsp;MB, once per visit) and reads structures
             straight from the RCSB, so nothing is downloaded or stored by this server.
-            <b>Family superposition, an AlphaFold overlay and the pairwise TM-score matrix
-            are not here yet</b>: those need a local structural pipeline rather than a
-            browser, and the map's layout stays a placeholder until the matrix exists.
           </p>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Pairwise TM-score matrix</h2>
+          <span class="sub" id="tmSub"></span>
+          <div class="slider">
+            <span class="flabel">Cut</span>
+            <input type="range" id="tmCut" min="2" max="60" step="1" value="18"
+                   aria-label="Cluster cut height, as 1 minus TM-score">
+            <span class="val" id="tmCutVal">0.18</span>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="tmwrap">
+            <div id="tmHeatmap"></div>
+            <div id="tmClusters" class="tmclusters"></div>
+          </div>
+          <div class="covlegend" id="tmLegend"></div>
         </div>
       </div>
     </section>
@@ -343,6 +360,7 @@
   };
 </script>
 <script src="{{ asset('viewer.js') }}"></script>
+<script src="{{ asset('heatmap.js') }}"></script>
 <script src="{{ asset('map.js') }}"></script>
 <script src="{{ asset('family.js') }}"></script>
 {% endblock %}

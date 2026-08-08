@@ -110,6 +110,11 @@ def _from_embedding(members: list[dict], embedding: dict) -> dict:
         "clusters": [],
         "placeholder": False,
         "embedded": True,
+        # Shipped so the Structures panel can draw the matrix and cluster it in the browser,
+        # where the cut height can be a live control rather than a decision baked into the
+        # artefact. ~36 kB for an 80-representative family.
+        "tm": tm,
+        "representatives": reps,
         "n_representatives": len(reps),
         "n_pairs": embedding.get("n_pairs"),
         "median_tm": embedding.get("median_tm"),

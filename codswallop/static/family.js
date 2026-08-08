@@ -22,6 +22,7 @@
     hot: null,               // cross-highlighted entity id
     picked: null,            // entity id open in the index card
     construct: null,         // seq_id highlighted from the Constructs panel
+    cluster: null,           // Set of seq_ids from a TM-matrix cluster, or null
     filters: {
       identity: 30,
       methods: null,         // Set of method names, or null for "all"
@@ -45,6 +46,8 @@
       if (!f.orthologues && m.is_orthologue) return;
       if (!f.fusions && m.is_fusion) return;
       if (f.holoOnly && !m.has_ligand) return;
+      // A cluster picked off the TM matrix filters like any other control.
+      if (S.cluster && !S.cluster.has(m.seq_id)) return;
       vis.add(m.entity_id);
     });
     S.visible = vis;
@@ -1280,6 +1283,8 @@
     });
     var ex = $("expCrystals");
     if (ex) ex.addEventListener("click", exportCrystals);
+    var cutter = $("tmCut");
+    if (cutter) cutter.addEventListener("input", renderHeatmap);
   }
 
   /* ---- conservation, the logo, and the engineered positions ----------------------- */
@@ -1393,6 +1398,79 @@
     }
   }
 
+  /* ---- the TM-score matrix --------------------------------------------------------- */
+  var tmState = null;
+
+  function renderHeatmap() {
+    var m = S.family.map;
+    var host = $("tmHeatmap");
+    if (!host) return;
+    if (!m || !m.embedded || !m.tm || !m.tm.length) {
+      $("tmSub").textContent = "no structural embedding for this family yet";
+      host.innerHTML = '<p class="empty">Run <code>CODSWALLOP.py embed</code> on a ' +
+        "workstation and the matrix appears here.</p>";
+      $("tmClusters").innerHTML = "";
+      return;
+    }
+    var cut = Number($("tmCut").value) / 100;
+    $("tmCutVal").textContent = cut.toFixed(2);
+    $("tmSub").textContent = m.n_representatives + " representatives · " +
+      commas(m.n_pairs) + " alignments · median TM " + m.median_tm;
+
+    tmState = TmHeatmap.draw(host, m.tm, m.representatives, {
+      cutHeight: cut,
+      onPickCluster: function (reps) { selectCluster(reps); },
+    });
+    renderClusterList(m, cut);
+    $("tmLegend").innerHTML =
+      '<span><i style="background:var(--mint)"></i>TM 1.0, same structure</span>' +
+      '<span><i style="background:var(--accent)"></i>TM 0.6</span>' +
+      '<span><i style="background:var(--sky);border:1px solid var(--line)"></i>TM &le;0.2</span>' +
+      "<span>Average linkage, cut at 1&nbsp;&minus;&nbsp;TM = " + cut.toFixed(2) +
+      ". TM 0.5 is the conventional same-fold boundary and is the wrong place to cut here: " +
+      "every member of a family is the same fold, so a cut there returns one cluster for " +
+      "almost any family. The informative range is much tighter, where conformational " +
+      "states and fusion constructs separate. Drag it to see whether a grouping is real or " +
+      "an artefact of where the line sits.</span>";
+  }
+
+  function renderClusterList(m, cut) {
+    if (!tmState) return;
+    var box = $("tmClusters");
+    box.innerHTML = "<h4>" + tmState.groups.length + " clusters at this cut</h4>" +
+      tmState.groups.map(function (g, gi) {
+        var ids = g.map(function (l) { return m.representatives[l].pdb_id; });
+        var entities = g.reduce(function (a, l) {
+          return a + (m.representatives[l].n_entities || 0);
+        }, 0);
+        return '<div class="tmgroup" data-cluster="' + gi + '">' +
+          '<div class="n">' + g.length + " structure" + (g.length === 1 ? "" : "s") +
+          " · " + commas(entities) + " entities</div>" +
+          '<div class="ids">' + esc(ids.slice(0, 12).join(" ")) +
+          (ids.length > 12 ? " +" + (ids.length - 12) : "") + "</div></div>";
+      }).join("");
+
+    box.querySelectorAll(".tmgroup").forEach(function (el) {
+      el.addEventListener("click", function () {
+        var gi = Number(el.dataset.cluster);
+        var already = el.classList.contains("on");
+        box.querySelectorAll(".tmgroup").forEach(function (o) { o.classList.remove("on"); });
+        if (already) { selectCluster(null); return; }
+        el.classList.add("on");
+        selectCluster(tmState.groups[gi].map(function (l) { return m.representatives[l]; }));
+      });
+    });
+  }
+
+  /* A cluster the matrix found becomes a filter, like any other: the map, the entry list
+     and the table all narrow to the entities whose construct is in it. This is what "the
+     clusters become first-class filters" has to mean if the shared selection state is
+     load-bearing. */
+  function selectCluster(reps) {
+    S.cluster = reps ? new Set(reps.map(function (r) { return r.seq_id; })) : null;
+    apply();
+  }
+
   /* ---- the Structures panel ------------------------------------------------------- */
   function renderStructures() {
     var pick = $("structurePick");
@@ -1435,6 +1513,7 @@
     renderDisorderRuns();
     renderSeedSequence();
     renderConservation();
+    renderHeatmap();
     renderConstructs();
     renderDomains();
     renderOrthologues();
