@@ -17,7 +17,7 @@ from . import config
 
 logger = logging.getLogger(__name__)
 
-VERSION = 3
+VERSION = 4
 EMBED_DIR = config.DATA_DIR / "embeddings"
 
 

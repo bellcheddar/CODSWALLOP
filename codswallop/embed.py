@@ -197,7 +197,7 @@ def embed(tm: np.ndarray) -> np.ndarray:
 AFDB_API = "https://alphafold.ebi.ac.uk/api/prediction/{accession}"
 
 
-def alphafold_trace(accession: str) -> Optional[tuple]:
+def alphafold_trace(accession: str, span: Optional[tuple] = None) -> Optional[tuple]:
     """Download the AlphaFold model for an accession and return its CA trace.
 
     The file URL comes from the API, never constructed: the model version is in the filename
@@ -229,12 +229,26 @@ def alphafold_trace(accession: str) -> Optional[tuple]:
         return None
     seq = "".join(_THREE_TO_ONE.get(r, "X") for r in ca.res_name)
     coords = np.asarray(ca.coord, dtype=np.float64)
+
+    # Trim to the part of the protein the reference structure actually covers, NOT to the
+    # first MAX_RESIDUES. An AlphaFold model is full-length and a crystal structure rarely
+    # is: EGFR's model is 1,210 residues and its reference covers seed residues 716-974, so
+    # taking the first 700 handed TM-align the extracellular domain to superpose onto the
+    # kinase domain. It scored 0.275 and looked like a bad prediction rather than a bad
+    # slice. AlphaFold DB models are numbered from 1 against the canonical, so a seed span
+    # indexes them directly.
+    if span:
+        beg, end = span
+        lo, hi = max(0, int(beg) - 1), min(len(seq), int(end))
+        if hi - lo >= 20:
+            seq, coords = seq[lo:hi], coords[lo:hi]
     if len(seq) > MAX_RESIDUES:
         seq, coords = seq[:MAX_RESIDUES], coords[:MAX_RESIDUES]
     return (coords, seq, url) if len(seq) >= 20 else None
 
 
-def alphafold_transform(accession: str, reference: tuple) -> Optional[dict]:
+def alphafold_transform(accession: str, reference: tuple,
+                        span: Optional[tuple] = None) -> Optional[dict]:
     """Align the AlphaFold model onto the reference structure.
 
     This is why the overlay can be a real superposition rather than two models sitting in
@@ -242,7 +256,7 @@ def alphafold_transform(accession: str, reference: tuple) -> Optional[dict]:
     it belongs in the pipeline where TM-align lives rather than in a browser that has no
     way to do it.
     """
-    got = alphafold_trace(accession)
+    got = alphafold_trace(accession, span)
     if not got:
         return None
     coords, seq, url = got
@@ -261,6 +275,7 @@ def alphafold_transform(accession: str, reference: tuple) -> Optional[dict]:
         # panel: an overlay of something that does not superpose is a misleading picture.
         "tm": round(float(max(r.tm_norm_chain1, r.tm_norm_chain2)), 3),
         "length": len(seq),
+        "span": list(span) if span else None,
     }
 
 
@@ -318,7 +333,14 @@ def build(fam: dict, max_representatives: int = MAX_REPRESENTATIVES,
     if accs:
         if progress:
             progress("fetch", len(chosen), len(chosen), "AlphaFold")
-        af = alphafold_transform(accs.most_common(1)[0][0], traces[ref])
+        # The seed span of the reference structure, so the model is trimmed to the same
+        # region rather than to its own first 700 residues.
+        ref_pdb = reps[ref]["pdb_id"]
+        ref_member = by_pdb.get(ref_pdb) or {}
+        span = None
+        if ref_member.get("query_beg") and ref_member.get("query_end"):
+            span = (ref_member["query_beg"], ref_member["query_end"])
+        af = alphafold_transform(accs.most_common(1)[0][0], traces[ref], span)
     elapsed = time.time() - t0
 
     artefact = {
