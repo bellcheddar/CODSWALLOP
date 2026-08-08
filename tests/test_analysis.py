@@ -243,3 +243,18 @@ def test_mds_puts_dissimilar_structures_further_apart():
     within = np.linalg.norm(c[0] - c[1])
     between = np.linalg.norm(c[0] - c[2])
     assert between > within * 3, "the embedding must separate the two folds"
+
+
+def test_artefact_versions_have_exactly_one_definition():
+    """A version constant declared in two places will eventually disagree.
+
+    It already did: bumping embed.VERSION to 2 for the superposition transforms while
+    embed_io still said 1 made every previously computed artefact fail its version check, so
+    three families silently reverted to the placeholder map with no error anywhere.
+    """
+    import inspect
+    from codswallop import contacts_io, embed, embed_io
+    assert embed.VERSION is embed_io.VERSION
+    for mod in (embed, contacts_io):
+        src = inspect.getsource(mod)
+        assert src.count("\nVERSION = ") <= 1, f"{mod.__name__} redeclares VERSION"

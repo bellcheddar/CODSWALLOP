@@ -36,7 +36,6 @@ from . import config
 
 logger = logging.getLogger(__name__)
 
-VERSION = 1
 CONTACT_DIR = config.DATA_DIR / "contacts"
 STRUCT_DIR = config.DATA_DIR / "structures"
 CIF2PLIP = config.ROOT_DIR / "pipeline" / "cif2plip.py"
@@ -61,7 +60,8 @@ INTERACTION_TYPES = [
 ]
 
 
-from .contacts_io import artefact_path, load  # noqa: F401  (re-exported for the CLI)
+# Same single-definition rule as embed/embed_io.
+from .contacts_io import VERSION, artefact_path, load  # noqa: F401
 
 
 # --------------------------------------------------------------------------------------

@@ -37,8 +37,6 @@ from . import config, http
 
 logger = logging.getLogger(__name__)
 
-VERSION = 2
-
 # Above this many representatives the pair count stops being worth the wall clock.
 MAX_REPRESENTATIVES = 260
 # Chains longer than this are truncated for the alignment. TM-align is O(n^2) per pair too,
@@ -57,7 +55,12 @@ _THREE_TO_ONE = {
 }
 
 
-from .embed_io import artefact_path, load  # noqa: F401  (re-exported for the CLI)
+# VERSION lives in embed_io and is imported, not redeclared. Two constants that must
+# agree will eventually not: bumping it here for the superposition transforms while
+# embed_io still said 1 would have silently rejected every artefact, and bumping
+# embed_io alone silently accepted stale ones. Either way the map falls back to the
+# placeholder with no error anywhere.
+from .embed_io import VERSION, artefact_path, load  # noqa: F401
 
 
 # --------------------------------------------------------------------------------------
