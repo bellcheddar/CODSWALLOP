@@ -389,6 +389,12 @@
           note.remove();
           applyTheme(viewer);
           themed.push(viewer);
+          // Everything in this viewport is now in the reference's coordinate frame, which is
+          // the only state in which the pipeline's AlphaFold transform means anything. See
+          // addAlphaFold: without this flag the model was placed in the reference's frame
+          // while the viewport showed a single entry in its own, so the two came out rotated
+          // against each other while both being individually correct.
+          viewer._referenceFrame = entries.length ? entries[0].pdb_id : true;
           try { plugin.managers.camera.reset(); } catch (err) { /* nothing loaded */ }
           return viewer;
         });
@@ -529,7 +535,12 @@
         // Put it on the reference before drawing it, so the camera reset below frames one
         // superposition rather than two objects a hundred angstroms apart.
         var fit = null;
-        if (af && af.u) {
+        // The pipeline transform maps the model onto the family's REFERENCE structure, so it
+        // is correct only while the viewport is in that frame. A reader who opened one entry
+        // and pressed this button is looking at that entry in its own crystal frame: KRAS
+        // put the model in 8T72's frame over a viewport showing 9IAY, and the two came out
+        // interpenetrating and rotated. Same protein, same neighbourhood, wrong frame.
+        if (af && af.u && viewer._referenceFrame) {
           fit = { u: af.u, t: af.t, source: "pipeline" };
         } else {
           // No artefact for this family, which is every family a reader assembles on the

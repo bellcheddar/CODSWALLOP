@@ -2105,13 +2105,24 @@
         $("superposeNote").textContent = "AlphaFold model for " + acc + " superposed on " +
           ref + " (TM " + af.tm + "), coloured by pLDDT.";
       } else if (fit) {
+        // Named against the structure actually on screen, not the family reference: the
+        // whole point of this branch is that those are different.
+        var shown = ($("structurePick") || {}).value || "the loaded structure";
         $("superposeNote").textContent = "AlphaFold model for " + acc +
-          " superposed in the browser on " + (ref !== "the reference" ? ref : "the loaded structure") +
+          " superposed in the browser on " + shown +
           ": least-squares fit over " + fit.n + " C\u03B1 atoms, RMSD " +
           fit.rmsd.toFixed(2) + " \u00C5" +
           (fit.trimmed ? " (" + fit.trimmed + " outlying residues excluded)" : "") +
-          ". Coloured by pLDDT. This family has no structural embedding yet, so the fit is " +
-          "against one structure rather than the whole family.";
+          ". Coloured by pLDDT. " +
+          // Two different reasons to be here, and saying "no embedding" for a family that
+          // has one is simply false: KRAS has a TM-align transform, it just maps onto the
+          // family's reference rather than onto the entry currently on screen.
+          (af && af.u
+            ? "Fitted to the entry on screen. Press \u201cSuperpose the family\u201d to " +
+              "place it on the family reference instead, using the pipeline\u2019s " +
+              "TM-align transform (TM " + af.tm + ")."
+            : "This family has no structural embedding yet, so the fit is against one " +
+              "structure rather than the whole family.");
       } else {
         $("superposeNote").textContent = "AlphaFold model for " + acc + " added, coloured " +
           "by pLDDT. Nothing could be matched to fit it to, so it sits in its own frame.";
