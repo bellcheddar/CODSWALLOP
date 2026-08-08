@@ -115,6 +115,9 @@ def _from_embedding(members: list[dict], embedding: dict) -> dict:
         # artefact. ~36 kB for an 80-representative family.
         "tm": tm,
         "representatives": reps,
+        # The structure everything else was superposed onto, so the panel can
+        # name it rather than guessing at the first representative.
+        "reference": embedding.get("reference"),
         "n_representatives": len(reps),
         "n_pairs": embedding.get("n_pairs"),
         "median_tm": embedding.get("median_tm"),

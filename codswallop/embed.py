@@ -37,7 +37,7 @@ from . import config, http
 
 logger = logging.getLogger(__name__)
 
-VERSION = 1
+VERSION = 2
 
 # Above this many representatives the pair count stops being worth the wall clock.
 MAX_REPRESENTATIVES = 260
@@ -107,6 +107,35 @@ def ca_trace(pdb_id: str, chain: Optional[str] = None) -> Optional[tuple]:
 # --------------------------------------------------------------------------------------
 # The matrix, and the embedding
 # --------------------------------------------------------------------------------------
+def transforms_to_reference(traces: list[tuple], ref: int = 0) -> list[Optional[dict]]:
+    """The rigid-body transform that puts each structure onto the reference.
+
+    This falls out of the same TM-align run that builds the matrix, so superposition costs
+    one extra row of alignments rather than a second pipeline. tmtools returns `u` (a 3x3
+    rotation) and `t` (a translation) that map chain 1 onto chain 2, so aligning each
+    structure AS chain 1 against the reference AS chain 2 gives the transform in the
+    direction the viewer wants: everything onto the reference's frame.
+    """
+    out: list[Optional[dict]] = []
+    cr, sr = traces[ref]
+    for i, (ci, si) in enumerate(traces):
+        if i == ref:
+            out.append({"u": np.eye(3).tolist(), "t": [0.0, 0.0, 0.0], "tm": 1.0})
+            continue
+        try:
+            r = tm_align(ci, cr, si, sr)
+            out.append({
+                "u": np.asarray(r.u, dtype=float).tolist(),
+                "t": np.asarray(r.t, dtype=float).tolist(),
+                "tm": round(float(max(r.tm_norm_chain1, r.tm_norm_chain2)), 3),
+            })
+        except Exception:
+            # A structure that will not align is left without a transform rather than
+            # given the identity, which would silently drop it in the wrong place.
+            out.append(None)
+    return out
+
+
 def pairwise_tm(traces: list[tuple]) -> np.ndarray:
     """Symmetric TM-score matrix.
 
@@ -202,6 +231,11 @@ def build(fam: dict, max_representatives: int = MAX_REPRESENTATIVES,
     t0 = time.time()
     tm = pairwise_tm(traces)
     coords = embed(tm)
+    # The reference for superposition: the representative most similar to everything else,
+    # not simply the best-resolution one. Superposing a family onto an outlier makes every
+    # other structure look wrong.
+    ref = int(np.argmax(tm.sum(axis=1)))
+    transforms = transforms_to_reference(traces, ref)
     elapsed = time.time() - t0
 
     artefact = {
@@ -211,8 +245,10 @@ def build(fam: dict, max_representatives: int = MAX_REPRESENTATIVES,
         "n_representatives": len(reps),
         "n_pairs": len(reps) * (len(reps) - 1) // 2,
         "seconds": round(elapsed, 1),
+        "reference": reps[ref]["pdb_id"],
         "representatives": [
-            {**r, "x": round(float(coords[i, 0]), 4), "y": round(float(coords[i, 1]), 4)}
+            {**r, "x": round(float(coords[i, 0]), 4), "y": round(float(coords[i, 1]), 4),
+             "transform": transforms[i]}
             for i, r in enumerate(reps)
         ],
         # The matrix itself, rounded: the Structures panel draws it as a clustered heatmap,

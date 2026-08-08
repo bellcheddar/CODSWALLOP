@@ -219,7 +219,13 @@
         </div>
         <div class="panel-body">
           <div class="vhost" id="structureHost">
-            <p class="vstatus">Pick an entry, or press Show, to load the viewer.</p>
+            <p class="vstatus">Pick an entry to load the viewer.</p>
+          </div>
+          <div class="tablebar">
+            <button class="btn ghost" type="button" id="btnSuperpose">Superpose the family</button>
+            <button class="btn ghost" type="button" id="btnAlphaFold">Add the AlphaFold model</button>
+            <span class="grow"></span>
+            <span class="filtersum" id="superposeNote"></span>
           </div>
           <p class="caveat">
             Mol&#42; is fetched on demand (5&nbsp;MB, once per visit) and reads structures

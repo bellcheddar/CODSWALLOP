@@ -1285,6 +1285,10 @@
     if (ex) ex.addEventListener("click", exportCrystals);
     var cutter = $("tmCut");
     if (cutter) cutter.addEventListener("input", renderHeatmap);
+    var sp = $("btnSuperpose");
+    if (sp) sp.addEventListener("click", superposeFamily);
+    var af = $("btnAlphaFold");
+    if (af) af.addEventListener("click", addAlphaFold);
   }
 
   /* ---- conservation, the logo, and the engineered positions ----------------------- */
@@ -1491,9 +1495,99 @@
     }
   }
 
+  var currentViewer = null;
+
   function loadStructure(pdbId) {
     if (!pdbId) return;
-    window.CodswallopViewer.show($("structureHost"), pdbId);
+    window.CodswallopViewer.show($("structureHost"), pdbId).then(function (v) {
+      currentViewer = v;
+      $("superposeNote").textContent = "";
+    });
+  }
+
+  /* Superpose the representatives of the current TM cluster, or the family's top ones.
+     Capped hard: each structure is a separate download and a separate Mol* state tree, and
+     a dozen is already a slow load on a laptop. */
+  // Six, not ten. Each structure is a separate download, parse and Mol* state-tree
+  // commit, done sequentially because the builder cannot be raced; ten took over a
+  // minute on a warm connection, which reads as a hang.
+  var SUPERPOSE_MAX = 6;
+
+  function superposeFamily() {
+    var m = S.family.map;
+    if (!m || !m.embedded) {
+      $("superposeNote").textContent =
+        "Superposition needs the structural embedding: run CODSWALLOP.py embed first.";
+      return;
+    }
+    // If a cluster is selected, superpose that; otherwise the most-used constructs.
+    var reps = m.representatives.filter(function (r) {
+      return !S.cluster || S.cluster.has(r.seq_id);
+    });
+    reps = reps.filter(function (r) { return r.transform; })
+               .sort(function (a, b) { return b.n_entities - a.n_entities; })
+               .slice(0, SUPERPOSE_MAX);
+    // The reference must be among the structures actually loaded: every transform maps onto
+    // its frame, so superposing without it anchors the pile on a structure that is not there.
+    if (m.reference && !reps.some(function (r) { return r.pdb_id === m.reference; })) {
+      var ref = m.representatives.find(function (r) { return r.pdb_id === m.reference; });
+      if (ref && ref.transform) reps = [ref].concat(reps.slice(0, SUPERPOSE_MAX - 1));
+    }
+    if (reps.length < 2) {
+      $("superposeNote").textContent = "Fewer than two alignable structures here.";
+      return;
+    }
+    // Cool colours only: these are data, and the brass is reserved for the drawer.
+    var palette = ["--cyan", "--mint", "--accent", "--violet", "--amber"];
+    var entries = reps.map(function (r, i) {
+      return {
+        pdb_id: r.pdb_id, transform: r.transform,
+        colour: cssColour(palette[i % palette.length]),
+      };
+    });
+    $("superposeNote").textContent = "Superposing " + reps.length + " structures onto " +
+      (m.reference || reps[0].pdb_id) + "…";
+    window.CodswallopViewer.superpose($("structureHost"), entries).then(function (v) {
+      currentViewer = v;
+      $("superposeNote").textContent = reps.length + " structures on " +
+        (m.reference || reps[0].pdb_id) + " (" +
+        reps.map(function (r) { return r.pdb_id; }).join(" ") + ")";
+    });
+  }
+
+  /** A CSS custom property as the {r,g,b} Mol* uniform colouring wants. */
+  function cssColour(varName) {
+    var hex = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+    var m = /^#?([0-9a-f]{6})$/i.exec(hex);
+    return m ? parseInt(m[1], 16) : 0x5b8cff;
+  }
+
+  function addAlphaFold() {
+    var acc = S.family.seed && /^[A-Z0-9]{6,10}$/i.test(S.family.seed) ? S.family.seed : null;
+    if (!acc) {
+      // Fall back to the accession most members carry, since a family seeded from a PDB ID
+      // has no accession of its own.
+      var counts = {};
+      S.members.forEach(function (m) {
+        if (m.uniprot) counts[m.uniprot] = (counts[m.uniprot] || 0) + 1;
+      });
+      acc = Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a]; })[0];
+    }
+    if (!acc) {
+      $("superposeNote").textContent = "No UniProt accession for this family.";
+      return;
+    }
+    if (!currentViewer) {
+      $("superposeNote").textContent = "Load a structure first.";
+      return;
+    }
+    $("superposeNote").textContent = "Fetching the AlphaFold model for " + acc + "…";
+    window.CodswallopViewer.addAlphaFold(currentViewer, acc).then(function () {
+      $("superposeNote").textContent = "AlphaFold model for " + acc +
+        " added, coloured by pLDDT. It sits in its own frame: it is not superposed.";
+    }).catch(function (err) {
+      $("superposeNote").textContent = "No AlphaFold model for " + acc + " (" + err.message + ").";
+    });
   }
 
   /* ==================================================================================
