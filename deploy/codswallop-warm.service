@@ -14,7 +14,9 @@ EnvironmentFile=-/opt/codswallop/.env
 # OpenBabel are deliberately absent. It still REPORTS any family left on the
 # placeholder map, so a pipeline version bump cannot go unnoticed here even though
 # the fix has to happen on a workstation.
-ExecStart=/opt/codswallop/.venv/bin/python /opt/codswallop/CODSWALLOP.py warm --force --no-artefacts
+# -u: unbuffered, so journalctl shows progress during the run rather than a silent
+# gap followed by everything at once when the process exits.
+ExecStart=/opt/codswallop/.venv/bin/python -u /opt/codswallop/CODSWALLOP.py warm --force --no-artefacts
 # One family can take half a minute cold, and there may be many.
 TimeoutStartSec=3600
 Nice=10

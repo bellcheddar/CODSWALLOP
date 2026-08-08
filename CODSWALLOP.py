@@ -186,14 +186,14 @@ def cmd_warm(args) -> int:
         try:
             result = resolve.resolve(q)
             if result["status"] != "resolved":
-                print(f"  skip  {q!r}: {result.get('message') or 'ambiguous'}")
+                print(f"  skip  {q!r}: {result.get('message') or 'ambiguous'}", flush=True)
                 continue
             fam = family.get_or_build(result["seed"], q, force=args.force)
             print(f"  warm  {fam['slug']:<44} {fam['stats']['entries']:>5} entries  "
-                  f"{time.time() - t0:>5.1f}s")
+                  f"{time.time() - t0:>5.1f}s", flush=True)
             ok += 1
         except Exception as exc:            # one bad family must not stop the rest
-            print(f"  FAIL  {q!r}: {exc}")
+            print(f"  FAIL  {q!r}: {exc}", flush=True)
             failed += 1
     print(f"\n{ok} warmed, {failed} failed.")
 
@@ -237,25 +237,25 @@ def _warm_artefacts(args) -> bool:
     every_ok = True
     for s in todo:
         if not s["query"]:
-            print(f"  skip  {s['slug']}: no stored query to rebuild from")
+            print(f"  skip  {s['slug']}: no stored query to rebuild from", flush=True)
             continue
         t0 = time.time()
         try:
             r = resolve.resolve(s["query"])
             if r["status"] != "resolved":
-                print(f"  skip  {s['slug']}: {r.get('message') or 'ambiguous'}")
+                print(f"  skip  {s['slug']}: {r.get('message') or 'ambiguous'}", flush=True)
                 continue
             fam = family.get_or_build(r["seed"], s["query"])
             art = embed.build(fam, max_representatives=args.max_reps)
             if not art:
-                print(f"  skip  {s['slug']}: not enough usable structures")
+                print(f"  skip  {s['slug']}: not enough usable structures", flush=True)
                 continue
             af = art.get("alphafold")
             print(f"  embed {s['slug']:<44} {art['n_representatives']:>3} reps"
                   + (f", AF TM {af['tm']}" if af else ", no AF model")
-                  + f"  {time.time() - t0:>5.0f}s")
+                  + f"  {time.time() - t0:>5.0f}s", flush=True)
         except Exception as exc:
-            print(f"  FAIL  {s['slug']}: {exc}")
+            print(f"  FAIL  {s['slug']}: {exc}", flush=True)
             every_ok = False
     return every_ok
 
