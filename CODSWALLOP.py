@@ -190,6 +190,14 @@ def cmd_warm(args) -> int:
                 print(f"  skip  {q!r}: {result.get('message') or 'ambiguous'}", flush=True)
                 continue
             fam = family.get_or_build(result["seed"], q, force=args.force)
+            # The drug enrichment is fetched here and only here. A page request reads it
+            # from the cache and never fetches: these are one third-party call per drug, and
+            # ABL1's 65 drug-like components put a page load past two minutes on the droplet.
+            try:
+                from codswallop import drugs as drug_engine
+                drug_engine.build(fam, fetch_missing=True)
+            except Exception as exc:            # noqa: BLE001
+                print(f"        (drug enrichment skipped: {exc})", flush=True)
             print(f"  warm  {fam['slug']:<44} {fam['stats']['entries']:>5} entries  "
                   f"{time.time() - t0:>5.1f}s", flush=True)
             ok += 1

@@ -567,3 +567,17 @@ def test_small_solvents_are_cryoprotectants_not_ligands():
     from codswallop.ligands import classify
     for cid in ("IPA", "EOH", "DIO", "TBU"):
         assert classify(cid, "") == "cryoprotectant", f"{cid} should not read as a ligand"
+
+
+def test_the_request_path_never_fetches_drug_enrichment():
+    """One third-party call per drug, and ABL1 has 65 drug-like components: doing them
+    inside a page load put the request past two minutes on a two-core droplet. The page
+    reads what is cached; the warm is what fills the cache."""
+    import inspect
+    from codswallop import drugs
+    sig = inspect.signature(drugs.build)
+    assert sig.parameters["fetch_missing"].default is False
+    for fn in (drugs.highest_trial_phase, drugs.fda_record):
+        src = inspect.getsource(fn)
+        assert "if not fetch_missing:" in src and "cache_get" in src, \
+            f"{fn.__name__} must be able to answer from the cache alone"

@@ -183,7 +183,7 @@ _PHASE_LABEL = {
 }
 
 
-def highest_trial_phase(name: str) -> Optional[str]:
+def highest_trial_phase(name: str, fetch_missing: bool = True) -> Optional[dict]:
     """The highest phase any registered trial has taken this drug to.
 
     Free-text on the intervention name, which is what the registry indexes. It is a ceiling
@@ -192,6 +192,13 @@ def highest_trial_phase(name: str) -> Optional[str]:
     """
     if not name:
         return None
+    key = ("ctgov_phase", DRUG_VERSION, name.lower())
+    if not fetch_missing:
+        # Serving a page: answer from the cache or not at all. These are one request per
+        # drug to a third party, and ABL1 has 65 drug-like components, so doing them inside
+        # a page load put the request past two minutes on a two-core droplet. The stage then
+        # falls back to DrugBank's own word, and the phase appears after the next warm.
+        return db.cache_get(db.cache_key(*key))
 
     def fetch():
         url = (f"{CTGOV_URL}?query.intr={urllib.parse.quote(name)}"
@@ -212,16 +219,20 @@ def highest_trial_phase(name: str) -> Optional[str]:
         best = min(seen, key=lambda s: STAGE_ORDER.index(s))
         return {"phase": best, "n_studies": sum(seen.values()), "by_phase": seen.most_common()}
 
-    return db.cached(("ctgov_phase", DRUG_VERSION, name.lower()), fetch)
+    return db.cached(key, fetch)
 
 
-def fda_record(name: str) -> Optional[dict]:
+def fda_record(name: str, fetch_missing: bool = True) -> Optional[dict]:
     """The NIH/NCATS substance record, which carries the FDA approval identifier.
 
     Used only to *confirm* an approval that DrugBank already asserts, and to give the reader
     a UNII to look up. It is not used to decide the stage: the search is by name, and a name
     search is not evidence about a molecule.
     """
+    key = ("ncats", DRUG_VERSION, name.lower())
+    if not fetch_missing:
+        return db.cache_get(db.cache_key(*key))
+
     def fetch():
         try:
             body = http.get_json(f"{NCATS_URL}?q={urllib.parse.quote(name)}&top=1")
@@ -234,7 +245,7 @@ def fda_record(name: str) -> Optional[dict]:
         return {"unii": r.get("approvalID"), "approved_by": r.get("approvedBy"),
                 "status": r.get("status"), "name": (r.get("_name") or "")}
 
-    return db.cached(("ncats", DRUG_VERSION, name.lower()), fetch)
+    return db.cached(key, fetch)
 
 
 def annotate(comp_ids: list[str]) -> dict:
@@ -288,8 +299,13 @@ def _stage(groups: list, trial: Optional[dict]) -> tuple:
     return "Unknown", "no development stage could be established"
 
 
-def build(fam: dict, max_drugs: int = 120) -> dict:
-    """The drugs bound anywhere in this family, grouped by therapeutic class."""
+def build(fam: dict, max_drugs: int = 120, fetch_missing: bool = False) -> dict:
+    """The drugs bound anywhere in this family, grouped by therapeutic class.
+
+    `fetch_missing` is off by default because the default caller is a page request. The
+    DrugBank annotation is one batched GraphQL call and is always made; the per-drug trial
+    and FDA lookups are read from the cache and only fetched when a warm asks for them.
+    """
     comps = ((fam.get("ligands") or {}).get("components")) or []
     # Only the components that could plausibly be a drug. A buffer or a cryoprotectant is
     # never one, and asking DrugBank about 800 sulfate ions wastes everybody's time.
