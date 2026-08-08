@@ -124,11 +124,13 @@ button { font: inherit; color: inherit; cursor: pointer; }
    ==================================================================================== */
 .room { min-height: 100vh; display: flex; flex-direction: column; }
 
+/* One padding value on all four sides, so the gap around the drawer front is the same
+   at the sides as it is above and below. */
 .drawer-front {
-  flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px 22px;
+  flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px;
 }
 .drawer-face {
-  width: min(620px, 100%);
+  width: 100%;
   background: linear-gradient(178deg, var(--surface-2), var(--bg-2));
   border: 1px solid var(--line);
   border-top-color: var(--brass-dk);
@@ -140,7 +142,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* The drawer pull: physical, therefore brass. */
 .drawer-face::after {
   content: ""; position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%);
-  width: 92px; height: 7px; border-radius: 4px;
+  width: clamp(92px, 12%, 180px); height: 7px; border-radius: 4px;
   background: linear-gradient(180deg, var(--brass), var(--brass-dk));
   opacity: .55;
 }
@@ -689,6 +691,7 @@ footer.site .sources { margin-top: 7px; }
   }
   .field, .hero { min-height: 380px; }
   .wrap { padding: 0 14px; }
+  .drawer-front { padding: 18px; }
   .drawer-face { padding: 28px 22px 30px; }
   .searchrow { flex-direction: column; }
   .kv { grid-template-columns: 96px 1fr; }
