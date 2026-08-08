@@ -64,3 +64,29 @@ def test_identical_sequence_reports_nothing():
     d = constructs.diff(TARGET, TARGET)
     assert constructs.summarise(d) == "matches the canonical sequence"
     assert not d["is_engineered"]
+
+
+# Every fusion partner in the table is also a protein with a family of its own, so the table
+# is capable of eating its own subject: the GFP family found GFP spanning the whole
+# construct, excised it, and handed the aligner an empty string, which raises rather than
+# scoring badly. One such entry aborted the entire family build.
+GFP = constructs.FUSIONS[[f[0] for f in constructs.FUSIONS].index("GFP")][1]
+
+
+def test_a_partner_that_is_the_subject_is_not_excised():
+    assert constructs._locate_fusions(GFP, GFP) == []
+    d = constructs.diff(GFP, GFP)
+    assert d["ok"] and d["mutation_count"] == 0
+    assert not d["fusions"], "GFP is the protein under study here, not a tag on it"
+
+
+def test_the_subject_check_does_not_blind_the_family_to_other_partners():
+    d = constructs.diff(GFP, GFP + T4L)
+    assert d["fusions"] == ["T4 lysozyme"]
+
+
+def test_excision_never_leaves_the_aligner_an_empty_sequence():
+    # Belt and braces: even with the subject check bypassed, a construct that is nothing but
+    # a partner must degrade to a messy diff rather than raising.
+    d = constructs.diff("MKV" * 20, GFP)
+    assert d["ok"] is True

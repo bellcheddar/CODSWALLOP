@@ -210,9 +210,10 @@ def decorate(fam: dict) -> dict:
     # _compact creates, so this runs after it. Cached on the exact set of sequences, because
     # the diff is ~0.4 s for a 232-construct family and nothing about it changes between
     # requests: a warm page must stay warm.
+    seed_acc = (fam.get("seed") or "") if fam.get("kind") == "uniprot" else ""
     fam["constructs"] = db.cached(
-        ("constructs", construct_engine.ENGINE_VERSION, sorted(fam["sequences"])),
-        lambda: build_constructs(members, fam["sequences"]),
+        ("constructs", construct_engine.ENGINE_VERSION, seed_acc, sorted(fam["sequences"])),
+        lambda: build_constructs(members, fam["sequences"], seed_acc),
     )
     _apply_constructs(fam, members)
 
@@ -485,7 +486,8 @@ _NON_LIGANDS = {
 }
 
 
-def build_constructs(members: list[dict], sequences: dict[str, str]) -> list[dict]:
+def build_constructs(members: list[dict], sequences: dict[str, str],
+                     seed_acc: str = "") -> list[dict]:
     """One row per unique deposited sequence, diffed against its own reference.
 
     The diff is run against **each construct's own UniProt canonical**, not against the
@@ -512,10 +514,19 @@ def build_constructs(members: list[dict], sequences: dict[str, str]) -> list[dic
         for a in (m.get("uniprot_ids") or ([m["uniprot"]] if m.get("uniprot") else [])):
             acc_counts[a] += 1
     wanted = [a for a, _ in acc_counts.most_common(MAX_REFERENCES)]
-    # The family's own protein: the accession the most entities carry. This is the reference
-    # a chimera must be diffed against, and getting it from the family rather than from the
-    # entity is the whole point of being family-centric.
+    # The family's own protein: the reference a chimera must be diffed against. Getting it
+    # from the family rather than from the entity is the whole point of being family-centric.
+    #
+    # The seed's accession outranks the modal one, because a modal vote loses the subject in
+    # exactly the families where it matters most. Families are assembled at 30% identity, so
+    # a search for ABL1 returns most of the tyrosine kinases: EGFR carried 332 entities to
+    # ABL1's 85, and every ABL1 construct was being diffed against EGFR's canonical sequence.
+    # A2A won its own vote by 189 to BRIL's 172, which is a coin flip, not a safety margin.
     dominant = acc_counts.most_common(1)[0][0] if acc_counts else None
+    if seed_acc and acc_counts.get(seed_acc):
+        dominant = seed_acc
+    if seed_acc and seed_acc not in wanted and acc_counts.get(seed_acc):
+        wanted.append(seed_acc)      # its sequence must be fetched even if rarely carried
     # Fetched concurrently: on a diverse family this was 36 sequential UniProt round trips
     # before anything else could start.
     from .http import parallel_map

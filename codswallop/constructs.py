@@ -22,7 +22,7 @@ from Bio.Align import substitution_matrices
 # Bumped whenever the motif tables or the classification change, because the per-family
 # construct analysis is cached: without it, a new fusion partner added below would never
 # appear for any family already in the cache. Same trap as rcsb.PARSE_VERSION.
-ENGINE_VERSION = 4
+ENGINE_VERSION = 5
 
 
 # --------------------------------------------------------------------------------------
@@ -182,7 +182,21 @@ def _describe_overhang(segment: str, which: str) -> Optional[dict]:
 # --------------------------------------------------------------------------------------
 # The diff
 # --------------------------------------------------------------------------------------
-def _locate_fusions(construct: str) -> list[dict]:
+def _windows_found(needle: str, haystack: str) -> list[tuple[int, int]]:
+    """Where 15-residue windows of `needle` land in `haystack`.
+
+    Windows rather than the whole sequence because deployed fusion partners are nearly always
+    point-mutated (T4 lysozyme is usually C54T/C97A, BRIL is a thermostabilised b562).
+    """
+    out = []
+    for i in range(0, len(needle) - 14, 15):
+        idx = haystack.find(needle[i:i + 15])
+        if idx >= 0:
+            out.append((idx, i))
+    return out
+
+
+def _locate_fusions(construct: str, canonical: str = "") -> list[dict]:
     """Find fusion partners by searching the construct sequence directly.
 
     Deliberately independent of the alignment. A 164-residue fusion partner is a 164-residue
@@ -191,24 +205,25 @@ def _locate_fusions(construct: str) -> list[dict]:
     across the protein: 2RH1's T4 lysozyme came out as a 42-residue insertion after residue
     230 with a scatter of fictitious point mutations either side. Searching for the partner
     itself does not care how the alignment came out.
+
+    `canonical` is what stops the table eating its own subject. Every partner here is a
+    protein in its own right with structures of its own, so a GFP family finds GFP spanning
+    the whole construct, excises it, and leaves the aligner an empty string: that is exactly
+    how the GFP family failed to build. A partner that also matches the family's *canonical*
+    sequence is not a fusion in this family, it is the protein being studied.
     """
     hits: list[dict] = []
     taken: list[tuple[int, int]] = []
+    subject = {name for name, seq, _ in FUSIONS
+               if canonical and len(_windows_found(seq, canonical)) >= 2}
 
     def overlaps(s: int, e: int) -> bool:
         return any(s < te and e > ts for ts, te in taken)
 
     for name, seq, min_len in FUSIONS:
-        best: Optional[tuple[int, int]] = None
-        # Walk the partner in windows and collect where they land. Windows rather than the
-        # whole sequence because the deployed versions are nearly always point-mutated
-        # (T4 lysozyme is usually C54T/C97A, BRIL is a thermostabilised b562).
-        positions = []
-        for i in range(0, len(seq) - 14, 15):
-            w = seq[i:i + 15]
-            idx = construct.find(w)
-            if idx >= 0:
-                positions.append((idx, i))
+        if name in subject:
+            continue
+        positions = _windows_found(seq, construct)
         if len(positions) < 2:
             continue
         # Consistent placement: the windows must appear in the construct in the same order
@@ -241,7 +256,8 @@ def diff(canonical: str, construct: str, features: Optional[dict] = None) -> dic
     # lets the aligner spread a 164-residue partner across the target as a scatter of fake
     # indels and point mutations; taking it out first gives a clean diff of the protein the
     # family is actually about, plus a named partner and the residue it was spliced after.
-    located = _locate_fusions(construct)
+    located = _locate_fusions(construct, canonical)
+    stripped, fusion_sites = construct, []
     if located:
         kept, cursor, offsets = [], 0, []
         for h in located:
@@ -249,10 +265,13 @@ def diff(canonical: str, construct: str, features: Optional[dict] = None) -> dic
             offsets.append((len("".join(kept)), h))
             cursor = h["end"]
         kept.append(construct[cursor:])
-        stripped = "".join(kept)
-        fusion_sites = offsets
-    else:
-        stripped, fusion_sites = construct, []
+        candidate = "".join(kept)
+        # Never excise so much that nothing is left to align. The `subject` check above is
+        # the real fix; this is the backstop, because the aligner does not return a poor
+        # score on an empty sequence, it raises, and one such construct aborts the whole
+        # family build. Keeping the construct whole gives a messy diff rather than no page.
+        if len(candidate) >= max(20, 0.25 * len(canonical)):
+            stripped, fusion_sites = candidate, offsets
 
     aln = _ALIGNER.align(canonical, stripped)[0]
     blocks = list(zip(aln.aligned[0], aln.aligned[1]))

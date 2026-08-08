@@ -334,3 +334,27 @@ def test_alphafold_span_is_only_applied_in_the_canonical_frame():
     # that it is the same accession the model belongs to.
     assert 'fam.get("kind") == "uniprot"' in src
     assert "== accession.upper()" in src
+
+
+# Families are assembled at 30% identity, so the family of a well-studied protein is really
+# its superfamily, and the subject is routinely outvoted inside its own family. Both of these
+# shipped a confident superposition of the wrong protein onto the page.
+def test_reference_prefers_the_protein_that_was_searched_for():
+    from codswallop import embed_io  # noqa: F401  (keeps the droplet import boundary honest)
+    from codswallop.embed import reference_index
+    reps = [{"pdb_id": "4L7S", "uniprot": "P00533"},   # EGFR: most central of the kinases
+            {"pdb_id": "2HYY", "uniprot": "P00519"},   # ABL1: the subject, less central
+            {"pdb_id": "3POZ", "uniprot": "P00533"}]
+    centrality = [9.0, 4.0, 8.0]
+    assert reference_index(reps, centrality, "P00519") == 1
+    # Among the subject's own structures, centrality still decides.
+    reps.append({"pdb_id": "1IEP", "uniprot": "P00519"})
+    assert reference_index(reps, centrality + [6.0], "P00519") == 3
+
+
+def test_reference_falls_back_to_centrality_when_the_seed_is_not_an_accession():
+    from codswallop.embed import reference_index
+    reps = [{"pdb_id": "1AKI", "uniprot": "P00698"}, {"pdb_id": "2LZM", "uniprot": "P00720"}]
+    assert reference_index(reps, [3.0, 7.0], "") == 1
+    # A UniProt seed with no structure of its own among the representatives must not crash.
+    assert reference_index(reps, [3.0, 7.0], "Q99999") == 1

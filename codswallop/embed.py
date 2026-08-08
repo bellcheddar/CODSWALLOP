@@ -285,6 +285,24 @@ def alphafold_transform(accession: str, reference: tuple,
     }
 
 
+def reference_index(reps: list, centrality, seed_acc: str) -> int:
+    """Which representative everything else is superposed onto.
+
+    Centrality (most similar to everything else) rather than best resolution, because
+    superposing a family onto an outlier makes every other structure look wrong.
+
+    Restricted first to the protein the reader actually asked for. Families are assembled at
+    30% identity, so a search for ABL1 legitimately returns most of the tyrosine kinases,
+    and the most central structure of that superfamily was an EGFR entry (4L7S): the page
+    superposed ABL1's family onto a different protein, with no indication it had done so.
+    Centrality still decides between the seed's own structures.
+    """
+    own = [i for i, r in enumerate(reps) if (r.get("uniprot") or "").upper() == seed_acc]
+    if seed_acc and own:
+        return int(max(own, key=lambda i: centrality[i]))
+    return int(np.argmax(centrality))
+
+
 def build(fam: dict, max_representatives: int = MAX_REPRESENTATIVES,
           progress=None) -> Optional[dict]:
     """Compute the embedding for one assembled family and return the artefact."""
@@ -313,7 +331,8 @@ def build(fam: dict, max_representatives: int = MAX_REPRESENTATIVES,
         if trace is None:
             continue
         reps.append({"seq_id": c["seq_id"], "pdb_id": pdb_id, "chain": chain,
-                     "n_entities": c["n_entities"]})
+                     "n_entities": c["n_entities"],
+                     "uniprot": (member or {}).get("uniprot")})
         traces.append(trace)
 
     if len(reps) < 3:
@@ -328,7 +347,14 @@ def build(fam: dict, max_representatives: int = MAX_REPRESENTATIVES,
     # The reference for superposition: the representative most similar to everything else,
     # not simply the best-resolution one. Superposing a family onto an outlier makes every
     # other structure look wrong.
-    ref = int(np.argmax(tm.sum(axis=1)))
+    #
+    # Restricted to the protein the reader actually asked for, when the family knows which
+    # that is. Families are assembled at 30% identity, so a search for ABL1 legitimately
+    # returns most of the tyrosine kinases, and the most *central* structure in that
+    # superfamily was an EGFR entry (4L7S): the page then superposed ABL1's family onto a
+    # different protein. Centrality is still what picks between the seed's own structures.
+    seed_acc = (fam.get("seed") or "").upper() if fam.get("kind") == "uniprot" else ""
+    ref = reference_index(reps, tm.sum(axis=1), seed_acc)
     transforms = transforms_to_reference(traces, ref)
 
     # The AlphaFold model, aligned onto the same reference so the viewer can superpose it
@@ -343,12 +369,16 @@ def build(fam: dict, max_representatives: int = MAX_REPRESENTATIVES,
         # region rather than to its own first 700 residues -- but ONLY when the family's
         # seed is that same UniProt sequence, because otherwise the two are not in the same
         # coordinate frame and the slice lands in the wrong place.
-        accession = accs.most_common(1)[0][0]
+        # The seed's own accession, never the family's modal one. The modal accession is a
+        # popularity contest the subject frequently loses: an ABL1 family at 30% identity is
+        # mostly EGFR by entry count, so it fetched EGFR's model, and every A2A receptor
+        # structure carries a BRIL fusion, so A2A fetched the model of E. coli cytochrome
+        # b562. Both rendered as a confident superposition of the wrong protein.
+        accession = seed_acc or accs.most_common(1)[0][0]
         ref_pdb = reps[ref]["pdb_id"]
         ref_member = by_pdb.get(ref_pdb) or {}
         span = None
-        seed_is_canonical = (fam.get("kind") == "uniprot"
-                             and (fam.get("seed") or "").upper() == accession.upper())
+        seed_is_canonical = bool(seed_acc) and seed_acc == accession.upper()
         if seed_is_canonical and ref_member.get("query_beg") and ref_member.get("query_end"):
             span = (ref_member["query_beg"], ref_member["query_end"])
         af = alphafold_transform(accession, traces[ref], span)
