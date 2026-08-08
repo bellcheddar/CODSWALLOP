@@ -403,6 +403,19 @@ def load_family(slug: str) -> Optional[dict]:
     return fam
 
 
+def family_row(slug: str) -> Optional[dict]:
+    """The family's stored row whether or not it is fresh.
+
+    Distinct from `load_family`, which assembles the whole thing: this is only the header, so
+    a stale family can be rebuilt from the query it was originally filed under rather than
+    the reader being asked to remember it.
+    """
+    row = connect().execute(
+        "SELECT slug, query, kind, seed, name, organism, built_at, parse_version "
+        "FROM family WHERE slug = ?", (slug,)).fetchone()
+    return dict(row) if row else None
+
+
 def recent_families(limit: int = 12) -> list[dict]:
     """Most recently assembled families, for the landing page's drawer of previous work."""
     rows = connect().execute(

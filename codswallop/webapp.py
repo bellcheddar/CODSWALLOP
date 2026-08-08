@@ -130,17 +130,28 @@ def create_app() -> Flask:
         if fam is not None:
             fam = family_mod.decorate(fam)
             display = fam.get("name") or slug
-        elif not q:
-            # A cold permalink with nothing to rebuild from: the slug alone does not carry
-            # enough to reconstruct the seed, so ask rather than guess at it.
-            return render_template(
-                "message.html", heading="That drawer is empty", query=slug.rsplit("-", 1)[-1],
-                message="Nothing is filed under that name yet, and a permalink alone does not "
-                        "say what to rebuild it from. Search for the protein and it will be "
-                        "reassembled under the same address.",
-            ), 404
         else:
-            display = q
+            # Stale is not the same as absent. A family that has been filed before still has
+            # its row, carrying the query it was built from, so it can be rebuilt at the same
+            # address without the reader having to remember what they searched for. Only a
+            # slug that was never filed has nothing to go on.
+            #
+            # This is what makes a permalink durable. Families go stale weekly by design, and
+            # a pipeline version bump stales every one of them at once, so without this a
+            # shared link rots on a timer: every filed family on the live site returned "that
+            # drawer is empty" the moment the parser version moved.
+            known = db.family_row(slug)
+            if not q and known and known.get("query"):
+                q = known["query"]
+            if not q:
+                return render_template(
+                    "message.html", heading="That drawer is empty",
+                    query=slug.rsplit("-", 1)[-1],
+                    message="Nothing is filed under that name yet, and a permalink alone "
+                            "does not say what to rebuild it from. Search for the protein "
+                            "and it will be reassembled under the same address.",
+                ), 404
+            display = (known or {}).get("name") or q
 
         return render_template("family.html", slug=slug, query=q, family=fam,
                                display_name=display)

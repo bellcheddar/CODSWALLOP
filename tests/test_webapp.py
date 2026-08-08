@@ -131,3 +131,23 @@ def test_dossier_survives_a_citation_with_no_year(dossier_client, monkeypatch):
     assert "Undated paper" in body and "Dated paper" in body
     assert body.index("Dated paper") < body.index("Undated paper"), \
         "dated papers lead; undated ones go last rather than crashing the sort"
+
+
+def test_a_stale_permalink_rebuilds_instead_of_404ing(client, monkeypatch):
+    """Stale is not absent. Families go stale weekly by design and a pipeline version bump
+    stales every one at once, so without this a shared link rots on a timer: every filed
+    family on the live site returned "that drawer is empty" the moment the parser moved."""
+    from codswallop import db as db_mod, webapp
+    monkeypatch.setattr(webapp.db, "family_fresh", lambda slug, *a, **k: False)
+    monkeypatch.setattr(webapp.db, "family_row",
+                        lambda slug: {"slug": slug, "query": "P00698", "name": "Lysozyme C"})
+    r = client.get("/f/lysozyme-c-p00698")
+    assert r.status_code == 200, "a family that has been filed before must rebuild itself"
+    assert b"Lysozyme C" in r.data
+
+
+def test_a_slug_never_filed_still_says_so(client, monkeypatch):
+    from codswallop import webapp
+    monkeypatch.setattr(webapp.db, "family_fresh", lambda slug, *a, **k: False)
+    monkeypatch.setattr(webapp.db, "family_row", lambda slug: None)
+    assert client.get("/f/never-heard-of-it-x9").status_code == 404
