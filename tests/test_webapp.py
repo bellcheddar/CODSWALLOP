@@ -56,3 +56,16 @@ def test_html_is_not_heuristically_cacheable(client):
     ?v= asset URLs, making a CSS or JS deploy invisible to anyone who has visited before."""
     r = client.get("/")
     assert "no-cache" in r.headers.get("Cache-Control", "")
+
+
+def test_stats_reports_families_left_on_the_placeholder(client):
+    """A stale artefact version leaves the map silently non-structural.
+
+    Three artefact version bumps in one afternoon each invalidated every artefact, and the
+    page renders either way: the map just quietly stops being a measurement. This is the
+    only place that says so without a shell on the server.
+    """
+    art = client.get("/api/stats").get_json()["artefacts"]
+    assert art is not None
+    assert "on_placeholder" in art
+    assert art["embedding_version"] >= 1

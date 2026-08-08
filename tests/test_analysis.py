@@ -258,3 +258,28 @@ def test_artefact_versions_have_exactly_one_definition():
     for mod in (embed, contacts_io):
         src = inspect.getsource(mod)
         assert src.count("\nVERSION = ") <= 1, f"{mod.__name__} redeclares VERSION"
+
+
+def test_artefact_survey_flags_a_wrong_version_as_stale(tmp_path, monkeypatch):
+    """Present-but-old must count as stale, not as present."""
+    import json, threading
+    from codswallop import artefacts, config, db, embed_io
+
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "t.db")
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path / "data")
+    monkeypatch.setattr(embed_io, "EMBED_DIR", tmp_path / "data" / "embeddings")
+    db._local = threading.local()
+    db.init()
+    db.connect().execute(
+        "INSERT INTO family(slug, query, kind, identity_threshold, built_at) "
+        "VALUES ('fam', 'P00918', 'uniprot', 30, 0)")
+    db.connect().commit()
+
+    (tmp_path / "data" / "embeddings").mkdir(parents=True)
+    (tmp_path / "data" / "embeddings" / "fam.json").write_text(
+        json.dumps({"version": embed_io.VERSION - 1}))
+
+    st = artefacts.status("fam")
+    assert st["embedding"]["present"] is True
+    assert st["embedding"]["current"] is False, "an old version must not read as present"
+    assert [s["slug"] for s in artefacts.stale("embedding")] == ["fam"]

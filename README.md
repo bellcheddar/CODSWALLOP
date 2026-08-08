@@ -77,7 +77,7 @@ Phases 2 to 4 add the RCSB 1D Coordinates, Alignment and file services, the PDBe
 ./.venv/bin/python -m pytest
 ```
 
-62 tests, none of which touch the network. They are written against the bugs that actually shipped rather than for coverage: a fusion partner being shredded by the aligner, a chimera diffed against the wrong reference, `Bis-Tris` being tallied as `Tris`, a saturating "never" statistic, a cached `None` being refetched forever, and a beacon that no page requested.
+65 tests, none of which touch the network. They are written against the bugs that actually shipped rather than for coverage: a fusion partner being shredded by the aligner, a chimera diffed against the wrong reference, `Bis-Tris` being tallied as `Tris`, a saturating "never" statistic, a cached `None` being refetched forever, and a beacon that no page requested.
 
 ## 🔧 Installation
 
@@ -240,7 +240,7 @@ Roadmap for CODSWALLOP, in dependency order: each phase is independently shippab
 - [ ] **Assembly and oligomeric state panel.** Author-assigned versus PISA-predicted, with disagreements flagged, and interface areas across the family
 - [ ] **Dossier export.** One-click self-contained HTML and PDF family report, branded, suitable for a project kickoff or a grant appendix, plus BibTeX of every primary citation
 - [ ] **Shareable permalinks with the filter state encoded in the URL.** `/f/<slug>` already exists; this adds the state
-- [x] **Performance and hardening.** The batched fetches now run concurrently (six at a time: these are free public APIs, so the aim is to stop wasting round-trip latency rather than to hammer them) and UniProt's entry and features come in one request rather than two. Spike went from 75 s to 32 s cold, and warm pages are unchanged at 0.06-0.7 s. A `warm` command plus a weekly systemd timer, firing a few hours after the PDB's Wednesday release, so a reader never pays for a stale cache. Every optional panel degrades on its own rather than taking the family down with it
+- [x] **Performance and hardening.** The batched fetches now run concurrently (six at a time: these are free public APIs, so the aim is to stop wasting round-trip latency rather than to hammer them) and UniProt's entry and features come in one request rather than two. Spike went from 75 s to 32 s cold, and warm pages are unchanged at 0.06-0.7 s. A `warm` command plus a weekly systemd timer, firing a few hours after the PDB's Wednesday release, so a reader never pays for a stale cache. `warm` also folds in the structural artefacts: on a workstation it rebuilds any embedding whose pipeline version has moved, and everywhere (including the droplet, which cannot build them) it reports how many families are still showing the placeholder map. That number is on `/api/stats` too. Three artefact version bumps in one afternoon each silently invalidated every artefact, and the page renders either way: the map just quietly stops being a measurement. Every optional panel degrades on its own rather than taking the family down with it
 - [ ] **Ship-out.** Icon, blog post on marcdeller.com, and a link from the mdeller.com landing page
 
 ### Backlog (deliberately outside the four phases)

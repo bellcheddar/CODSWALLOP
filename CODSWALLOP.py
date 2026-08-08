@@ -196,7 +196,86 @@ def cmd_warm(args) -> int:
             print(f"  FAIL  {q!r}: {exc}")
             failed += 1
     print(f"\n{ok} warmed, {failed} failed.")
-    return 1 if failed and not ok else 0
+
+    rebuilt = _warm_artefacts(args)
+    _report_artefacts()
+    return 1 if (failed and not ok) or rebuilt is False else 0
+
+
+def _pipeline_available() -> bool:
+    """Whether this machine can build artefacts at all.
+
+    The droplet cannot: biotite, tmtools, PLIP and OpenBabel are deliberately absent, which
+    is the point of the split. So `warm` reports staleness everywhere and only rebuilds
+    where the pipeline exists.
+    """
+    import importlib.util
+    return all(importlib.util.find_spec(m) for m in ("biotite", "tmtools", "numpy"))
+
+
+def _warm_artefacts(args) -> bool:
+    """Rebuild any embedding (and, if asked, contacts) that is missing or out of date.
+
+    This is the step that stops an artefact version bump from silently leaving families on
+    the placeholder map. Three bumps in one afternoon each did exactly that, and nothing
+    anywhere said so: the page renders either way.
+    """
+    from codswallop import artefacts
+
+    if args.no_artefacts:
+        return True
+    if not _pipeline_available():
+        return True
+
+    from codswallop import embed, family, resolve
+
+    todo = artefacts.stale("embedding")
+    if not todo:
+        return True
+    print(f"\n{len(todo)} embedding(s) missing or out of date "
+          f"(pipeline v{artefacts.embed_io.VERSION}); rebuilding:")
+    every_ok = True
+    for s in todo:
+        if not s["query"]:
+            print(f"  skip  {s['slug']}: no stored query to rebuild from")
+            continue
+        t0 = time.time()
+        try:
+            r = resolve.resolve(s["query"])
+            if r["status"] != "resolved":
+                print(f"  skip  {s['slug']}: {r.get('message') or 'ambiguous'}")
+                continue
+            fam = family.get_or_build(r["seed"], s["query"])
+            art = embed.build(fam, max_representatives=args.max_reps)
+            if not art:
+                print(f"  skip  {s['slug']}: not enough usable structures")
+                continue
+            af = art.get("alphafold")
+            print(f"  embed {s['slug']:<44} {art['n_representatives']:>3} reps"
+                  + (f", AF TM {af['tm']}" if af else ", no AF model")
+                  + f"  {time.time() - t0:>5.0f}s")
+        except Exception as exc:
+            print(f"  FAIL  {s['slug']}: {exc}")
+            every_ok = False
+    return every_ok
+
+
+def _report_artefacts() -> None:
+    """Say what is still on the placeholder. Runs on the droplet too, where nothing can be
+    rebuilt, because a silent fallback is the failure this exists to prevent."""
+    from codswallop import artefacts
+
+    summary = artefacts.summary()
+    print(f"\nArtefacts: {summary['embeddings_current']}/{summary['families']} embeddings "
+          f"current (v{summary['embedding_version']}), "
+          f"{summary['contacts_current']}/{summary['families']} contacts "
+          f"(v{summary['contacts_version']}).")
+    if summary["on_placeholder"]:
+        where = "" if _pipeline_available() else " (this machine cannot rebuild them: " \
+                                                 "run `CODSWALLOP.py warm` on a workstation)"
+        print(f"WARNING: {summary['on_placeholder']} famil"
+              f"{'y is' if summary['on_placeholder'] == 1 else 'ies are'} showing the "
+              f"placeholder map{where}.")
 
 
 def cmd_stats(_args) -> int:
@@ -243,6 +322,10 @@ def main(argv=None) -> int:
     sp = sub.add_parser("warm", help="pre-build families so the first visitor waits for nothing")
     sp.add_argument("queries", nargs="*", help="queries to warm (default: everything already filed)")
     sp.add_argument("--force", action="store_true", help="rebuild even if still fresh")
+    sp.add_argument("--no-artefacts", action="store_true",
+                    help="skip rebuilding stale embeddings (report only)")
+    sp.add_argument("--max-reps", type=int, default=80,
+                    help="cap on representatives when rebuilding an embedding")
     sp.set_defaults(fn=cmd_warm)
 
     sub.add_parser("stats", help="cache statistics").set_defaults(fn=cmd_stats)

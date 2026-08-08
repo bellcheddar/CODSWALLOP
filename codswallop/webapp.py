@@ -181,7 +181,16 @@ def create_app() -> Flask:
         """Cache statistics. Also the per-app hit beacon for the mdeller.com launcher: it
         is a request the page's own JavaScript makes after rendering, which is what the
         launcher's nginx log regex needs to count a real page view."""
-        return jsonify({**db.stats(), "version": config.VERSION})
+        # The artefact summary rides along so a stale pipeline version is visible without a
+        # shell on the droplet. `on_placeholder` is the number that matters: those families
+        # render a sequence-identity placeholder where the map claims structural distance,
+        # and nothing else anywhere says so.
+        from . import artefacts
+        try:
+            art = artefacts.summary()
+        except Exception:
+            art = None
+        return jsonify({**db.stats(), "version": config.VERSION, "artefacts": art})
 
     @app.route("/healthz")
     def healthz():
