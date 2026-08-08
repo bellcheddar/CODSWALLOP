@@ -1502,6 +1502,58 @@
       }).join("") + "</p></div>";
   }
 
+  /* ---- functional sites -------------------------------------------------------------
+     Two sources of unequal standing, and the panel says which is which rather than mixing
+     them: a curated UniProt feature is somebody having read a paper about this protein, a
+     PROSITE hit is a pattern having matched a string. The family columns are what make this
+     worth a panel at all, because a site nobody has ever cloned and a site fifty structures
+     resolve look identical on any single entry's page. */
+  function renderMotifs() {
+    var m = S.family.motifs || { n: 0, rows: [] };
+    if (!m.n) {
+      $("motifSub").textContent = "no annotated sites for this family";
+      $("motifIntro").innerHTML = "";
+      $("motifTable").innerHTML = '<p class="empty">Curated features come from the seed\'s ' +
+        "UniProt record, so a family seeded on a PDB entry rather than an accession has " +
+        "none to show.</p>";
+      return;
+    }
+    $("motifSub").textContent = m.n_curated + " curated · " + m.n_predicted + " predicted";
+    $("motifIntro").innerHTML =
+      '<p class="caveat"><b>Curated and predicted are not the same claim.</b> A UniProt ' +
+      "feature is somebody having read a paper about this protein. A PROSITE hit is a " +
+      "pattern having matched this sequence, which is a statement about a string. The " +
+      "high-probability PROSITE patterns are excluded, because scanning lysozyme with them " +
+      "returns a PKC phosphorylation site and two myristoylation sites on a secreted " +
+      "protein that has neither." +
+      (m.grounded
+        ? " <b>In constructs</b> is the share of the family whose construct contains the " +
+          "site; <b>resolved</b> is how often it is actually seen when it is present, so a " +
+          "site nobody clones does not read as disordered."
+        : "") + "</p>";
+
+    $("motifTable").innerHTML =
+      '<div class="tablewrap"><table class="ctable"><thead><tr>' +
+      "<th>Site</th><th>Where</th><th>Source</th>" +
+      (m.grounded ? "<th>In constructs</th><th>Resolved</th>" : "") +
+      "</tr></thead><tbody>" +
+      m.rows.map(function (r) {
+        var where = r.start === r.end ? String(r.start) : r.start + "&ndash;" + r.end;
+        return "<tr>" +
+          "<td><b>" + esc(r.name) + "</b>" +
+          (r.description && r.description !== r.name
+            ? ' <span class="n">' + esc(r.description) + "</span>" : "") + "</td>" +
+          '<td class="n">' + where + "</td>" +
+          '<td><span class="badge ' + (r.standing === "curated" ? "cur" : "pred") + '">' +
+          esc(r.source) + "</span> " + esc(r.kind) + "</td>" +
+          (m.grounded
+            ? '<td class="n">' + (r.in_constructs == null ? "—" : r.in_constructs + "%") +
+              '</td><td class="n">' + (r.resolved == null ? "—" : r.resolved + "%") + "</td>"
+            : "") +
+          "</tr>";
+      }).join("") + "</tbody></table></div>";
+  }
+
   function renderQuality() {
     var q = S.family.quality || { n: 0, rows: [] };
     if (!q.n) {
@@ -2017,6 +2069,7 @@
     renderCrystals();
     renderQuality();
     renderAssembly();
+    renderMotifs();
     renderKnownBlocks();
 
     recompute();

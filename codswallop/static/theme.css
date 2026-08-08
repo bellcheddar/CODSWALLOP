@@ -906,3 +906,8 @@ footer.site .sources { margin-top: 7px; }
 }
 .asmchip:hover { border-color: var(--oxide); color: var(--text); text-decoration: none; }
 .asmchip .n { color: var(--oxide); margin-left: 4px; }
+
+/* Motifs: the standing badge. Curated and predicted are different claims and the panel is
+   built around saying so, which means the distinction has to survive being skim-read. */
+.ctable .badge.cur  { border-color: var(--mint); color: var(--mint); }
+.ctable .badge.pred { border-color: var(--violet); color: var(--violet); }

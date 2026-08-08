@@ -9,6 +9,7 @@ batched, and back off when told to.
 
 from __future__ import annotations
 
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Iterable, Optional
 
@@ -21,6 +22,8 @@ from tenacity import (
 )
 
 from . import config
+
+logger = logging.getLogger(__name__)
 
 _SESSION = requests.Session()
 _SESSION.headers.update({"User-Agent": config.USER_AGENT, "Accept": "application/json"})
@@ -101,6 +104,30 @@ def post_search(url: str, payload: dict[str, Any]) -> Optional[dict]:
         return None
     resp.raise_for_status()
     return resp.json()
+
+
+def post_form(url: str, fields: dict[str, Any]) -> Optional[Any]:
+    """POST form-encoded, returning parsed JSON.
+
+    ScanProsite is a CGI script from an older web and takes a form POST rather than JSON. It
+    also 308-redirects its documented URL to a new path, and urllib re-issues a redirected
+    POST as a GET, which loses the body and returns an HTML page that json refuses. requests
+    keeps the method across a 308, so the redirect is followed correctly here, but the
+    endpoint is pinned to the post-redirect URL anyway rather than relying on that.
+    """
+    # Accept is set to application/json on the shared session; ScanProsite ignores it and
+    # keys off the `output` field instead, so it is left alone rather than special-cased.
+    resp = _check(_SESSION.post(url, data=fields, timeout=config.HTTP_TIMEOUT),
+                  f"POST {url}")
+    if resp.status_code == 204 or not resp.content:
+        return None
+    try:
+        return resp.json()
+    except ValueError:
+        # A CGI that answers with an HTML error page rather than a status code. Not fatal:
+        # the panel it feeds is optional and a family without motifs still renders.
+        logger.warning("%s answered with non-JSON (%d bytes)", url, len(resp.content))
+        return None
 
 
 def graphql(url: str, query: str, variables: Optional[dict] = None) -> dict:

@@ -85,12 +85,25 @@ def by_gene(gene: str, size: int = 12) -> list[dict]:
     return search(f"gene:{gene}", size)
 
 
-_FEATURE_FIELDS = "ft_act_site,ft_binding,ft_signal,ft_transmem,ft_domain,ft_disulfid"
+# Phase 4 adds the post-translational ones for the motifs panel. `ft_mod_res` is the
+# phosphorylation/acetylation/methylation column, `ft_carbohyd` the glycosylation and
+# `ft_lipid` the myristoylation and palmitoylation: these are curated observations on the
+# real protein, which is what makes them worth more than a pattern that matches by chance.
+_FEATURE_FIELDS = ("ft_act_site,ft_binding,ft_signal,ft_transmem,ft_domain,ft_disulfid,"
+                   "ft_mod_res,ft_carbohyd,ft_lipid,ft_site,ft_motif")
 
 # One request per accession, not two. The entry and its features come from the same document
 # and the same endpoint, and asking twice doubled the UniProt half of a cold build: 72 calls
 # and 24 seconds on a family with 36 references.
 _ALL_FIELDS = _FIELDS + "," + _FEATURE_FIELDS
+
+
+# Part of the cache key, for the same reason rcsb.PARSE_VERSION is. Records are cached in
+# *parsed* form, so adding a requested field leaves it absent from every cached row and the
+# consumer reads an empty list rather than failing: adding the PTM columns without bumping
+# this returned a family with no post-translational modifications at all, which for EGFR is
+# a confident and completely wrong answer.
+PARSE_VERSION = 3
 
 
 def entry_with_features(accession: str) -> tuple:
@@ -104,7 +117,7 @@ def entry_with_features(accession: str) -> tuple:
             return [None, {}]
         return [_condense(rec), _features_from(rec)]
 
-    got = db.cached(("uniprot_both", acc), fetch) or [None, {}]
+    got = db.cached(("uniprot_both", PARSE_VERSION, acc), fetch) or [None, {}]
     return got[0], got[1]
 
 
@@ -121,10 +134,14 @@ def features(accession: str) -> dict:
 def _features_from(rec: dict) -> dict:
     """Positional annotations, from an already-fetched UniProt record."""
     out: dict[str, list] = {"active_site": [], "binding_site": [], "signal_peptide": [],
-                            "transmembrane": [], "domain": [], "disulphide": []}
+                            "transmembrane": [], "domain": [], "disulphide": [],
+                            "modified": [], "glycosylation": [], "lipidation": [],
+                            "site": [], "motif": []}
     key = {"Active site": "active_site", "Binding site": "binding_site",
            "Signal": "signal_peptide", "Transmembrane": "transmembrane",
-           "Domain": "domain", "Disulfide bond": "disulphide"}
+           "Domain": "domain", "Disulfide bond": "disulphide",
+           "Modified residue": "modified", "Glycosylation": "glycosylation",
+           "Lipidation": "lipidation", "Site": "site", "Short sequence motif": "motif"}
     for f in rec.get("features") or []:
         k = key.get(f.get("type"))
         if not k:
@@ -134,7 +151,13 @@ def _features_from(rec: dict) -> dict:
         end = (loc.get("end") or {}).get("value")
         if beg is None or end is None:
             continue
-        if k in ("active_site", "binding_site", "disulphide"):
+        if k == "disulphide":
+            # A disulphide's two numbers are the two cysteines, not the ends of a span. The
+            # range between them is ordinary sequence: expanding it turned lysozyme's
+            # 24-145 bond into 122 consecutive "disulphide bonds", one per residue.
+            out[k].append({"start": int(beg), "end": int(end),
+                           "description": f.get("description") or ""})
+        elif k in ("active_site", "binding_site"):
             # Single positions: the classifier tests membership, not overlap.
             out[k].extend(range(int(beg), int(end) + 1))
         else:

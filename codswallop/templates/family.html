@@ -208,7 +208,15 @@
           <span class="sub" id="constructSub"></span>
           <div class="seg" role="group" aria-label="Filter constructs">
             <button type="button" id="cbAll" aria-pressed="true">All</button>
-            <button type="button" id="cbEng" aria-pressed="false">Engineered</button>
+            {# "Engineered" here means differs from the UniProt canonical, which includes a
+               construct that merely starts after a signal peptide. Said in the tooltip
+               rather than in a longer label, because the distinction matters most to the
+               reader who is already wondering why a wild-type construct is in the list. #}
+            <button type="button" id="cbEng" aria-pressed="false"
+                    title="Differs from the UniProt canonical sequence: a mutation, a
+                           deletion, or an engineered terminus. A secreted protein whose
+                           structures start after its signal peptide counts here too.">
+              Engineered</button>
             <button type="button" id="cbFus" aria-pressed="false">Fusions</button>
           </div>
         </div>
@@ -356,6 +364,20 @@
           <div id="asmStates"></div>
           <div id="asmProvenance"></div>
           <div id="asmAmbiguous"></div>
+        </div>
+      </div>
+    </section>
+
+    {# ---- functional sites --------------------------------------------------------- #}
+    <section id="sec-motifs" class="section" role="tabpanel" hidden>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Functional sites</h2>
+          <span class="sub" id="motifSub"></span>
+        </div>
+        <div class="panel-body">
+          <div id="motifIntro"></div>
+          <div id="motifTable"></div>
         </div>
       </div>
     </section>

@@ -188,6 +188,11 @@ def decorate(fam: dict) -> dict:
     # matrix: `_compact` pops `fam["entries"]` to shrink the payload, so anything reading it
     # after that point silently receives an empty list and reports a family with no
     # assemblies at all. That is the fourth bug in this function to come from its order.
+    # Motifs need the coverage census, so this runs after `_attach_density` has put `depth`
+    # and `seen` on the stats: without them every site reports an unknown share of the
+    # family rather than being grounded in it, which is the whole point of the panel.
+    fam["motifs"] = _optional("motifs", lambda: build_motifs(fam),
+                              {"n": 0, "rows": [], "n_curated": 0, "n_predicted": 0})
     fam["assemblies"] = _optional("assemblies", lambda: build_assemblies(fam["entries"]),
                                   {"n": 0, "states": [], "provenance": {}, "ambiguous": [],
                                    "n_ambiguous": 0, "interfaces": None})
@@ -764,6 +769,24 @@ def build_domains(fam: dict, members: list[dict]) -> dict:
     sources = sorted({d["source"] for d in out})
     return {"sources": sources, "domains": out, "support": support,
             "dropped": dropped}
+
+
+def build_motifs(fam: dict) -> dict:
+    """Functional sites on the seed, cached on the seed rather than on the family.
+
+    The scan is a property of the sequence, so two families seeded on the same protein at
+    different identity thresholds share it. The grounding is not, so only the scan is cached.
+    """
+    from . import motifs as motif_engine
+
+    seed = (fam.get("seed") or "").upper()
+    feats = {}
+    if fam.get("kind") == "uniprot" and seed:
+        try:
+            feats = uniprot.features(seed) or {}
+        except Exception:                       # noqa: BLE001
+            logger.warning("no UniProt features for %s", seed, exc_info=True)
+    return motif_engine.build(fam, feats)
 
 
 def build_assemblies(entries: list[dict]) -> dict:
