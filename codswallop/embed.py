@@ -234,9 +234,15 @@ def alphafold_trace(accession: str, span: Optional[tuple] = None) -> Optional[tu
     # first MAX_RESIDUES. An AlphaFold model is full-length and a crystal structure rarely
     # is: EGFR's model is 1,210 residues and its reference covers seed residues 716-974, so
     # taking the first 700 handed TM-align the extracellular domain to superpose onto the
-    # kinase domain. It scored 0.275 and looked like a bad prediction rather than a bad
-    # slice. AlphaFold DB models are numbered from 1 against the canonical, so a seed span
-    # indexes them directly.
+    # kinase domain. It scored 0.275, which reads as a bad prediction rather than a bad slice.
+    #
+    # The span is only applied when the caller could establish that seed coordinates ARE
+    # canonical coordinates, which is not automatic. A family seeded from a PDB entity is
+    # numbered against that construct: lysozyme's seed is the 129-residue MATURE protein
+    # while P00698's canonical is 147 residues including an 18-residue signal peptide, so
+    # slicing the model at seed [1,129] takes the signal peptide plus the wrong end and
+    # dropped its TM from 0.993 to 0.854. Where the frames cannot be reconciled, no slice:
+    # TM-align handles partial overlap perfectly well on its own.
     if span:
         beg, end = span
         lo, hi = max(0, int(beg) - 1), min(len(seq), int(end))
@@ -334,13 +340,18 @@ def build(fam: dict, max_representatives: int = MAX_REPRESENTATIVES,
         if progress:
             progress("fetch", len(chosen), len(chosen), "AlphaFold")
         # The seed span of the reference structure, so the model is trimmed to the same
-        # region rather than to its own first 700 residues.
+        # region rather than to its own first 700 residues -- but ONLY when the family's
+        # seed is that same UniProt sequence, because otherwise the two are not in the same
+        # coordinate frame and the slice lands in the wrong place.
+        accession = accs.most_common(1)[0][0]
         ref_pdb = reps[ref]["pdb_id"]
         ref_member = by_pdb.get(ref_pdb) or {}
         span = None
-        if ref_member.get("query_beg") and ref_member.get("query_end"):
+        seed_is_canonical = (fam.get("kind") == "uniprot"
+                             and (fam.get("seed") or "").upper() == accession.upper())
+        if seed_is_canonical and ref_member.get("query_beg") and ref_member.get("query_end"):
             span = (ref_member["query_beg"], ref_member["query_end"])
-        af = alphafold_transform(accs.most_common(1)[0][0], traces[ref], span)
+        af = alphafold_transform(accession, traces[ref], span)
     elapsed = time.time() - t0
 
     artefact = {

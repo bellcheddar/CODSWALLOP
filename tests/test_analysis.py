@@ -316,3 +316,21 @@ def test_water_does_not_count_as_a_coordinating_residue():
     }}}
     out = ligands.promote_catalytic_metals(comps, contacts, {94: 0.99, 421: 0.99, 422: 0.99})
     assert out[0]["klass"] == "ion", "two waters and a histidine is not a metal site"
+
+
+def test_alphafold_span_is_only_applied_in_the_canonical_frame():
+    """Seed coordinates are not canonical coordinates unless the seed IS the canonical.
+
+    Lysozyme's family is seeded from a PDB entity: its seed is the 129-residue mature
+    protein, while P00698's canonical is 147 residues including an 18-residue signal
+    peptide. Slicing the AlphaFold model at seed [1,129] therefore takes the signal peptide
+    and the wrong end, and dropped the superposition from TM 0.993 to 0.854.
+    """
+    import inspect
+    from codswallop import embed
+    src = inspect.getsource(embed.build)
+    assert "seed_is_canonical" in src
+    # The guard must require BOTH that the family was seeded from a UniProt accession and
+    # that it is the same accession the model belongs to.
+    assert 'fam.get("kind") == "uniprot"' in src
+    assert "== accession.upper()" in src
