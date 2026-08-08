@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 from typing import Optional
 
-from . import config, contacts_io, db, embed_io
+from . import config, contacts_io, db, embed_io, topology_io
 
 
 def _version_of(path) -> Optional[int]:
@@ -31,8 +31,10 @@ def _version_of(path) -> Optional[int]:
 def status(slug: str) -> dict:
     """The artefact state of one family."""
     emb, con = embed_io.artefact_path(slug), contacts_io.artefact_path(slug)
+    top = topology_io.artefact_path(slug)
     emb_v = _version_of(emb) if emb.exists() else None
     con_v = _version_of(con) if con.exists() else None
+    top_v = _version_of(top) if top.exists() else None
     return {
         "slug": slug,
         "embedding": {
@@ -46,6 +48,12 @@ def status(slug: str) -> dict:
             "version": con_v,
             "current": con_v == contacts_io.VERSION,
             "wanted": contacts_io.VERSION,
+        },
+        "topology": {
+            "present": top.exists(),
+            "version": top_v,
+            "current": top_v == topology_io.VERSION,
+            "wanted": topology_io.VERSION,
         },
     }
 
@@ -79,7 +87,9 @@ def summary() -> dict:
         "families": len(rows),
         "embeddings_current": sum(1 for s in rows if s["embedding"]["current"]),
         "contacts_current": sum(1 for s in rows if s["contacts"]["current"]),
+        "topology_current": sum(1 for s in rows if s["topology"]["current"]),
         "on_placeholder": sum(1 for s in rows if not s["embedding"]["current"]),
         "embedding_version": embed_io.VERSION,
         "contacts_version": contacts_io.VERSION,
+        "topology_version": topology_io.VERSION,
     }

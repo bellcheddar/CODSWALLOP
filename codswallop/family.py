@@ -256,6 +256,7 @@ def decorate(fam: dict) -> dict:
                                 embedding=_embedding_for(fam["slug"]))
 
     fam["contacts"] = _optional("contacts", lambda: _contacts_for(fam["slug"]), None)
+    fam["topology"] = _optional("topology", lambda: _topology_for(fam["slug"]), None)
 
     # Ask a workstation for what this machine cannot build. Only the droplet ever needs
     # this, but it costs one indexed upsert and guessing which machine we are on from
@@ -326,6 +327,16 @@ def _embedding_for(slug: str) -> Optional[dict]:
         return load(slug)
     except Exception:
         logger.warning("could not read the embedding for %s", slug, exc_info=True)
+        return None
+
+
+def _topology_for(slug: str) -> Optional[dict]:
+    """Read the topology artefact, if a workstation has produced one."""
+    try:
+        from .topology_io import load
+        return load(slug)
+    except Exception:                       # noqa: BLE001
+        logger.warning("could not read the topology for %s", slug, exc_info=True)
         return None
 
 

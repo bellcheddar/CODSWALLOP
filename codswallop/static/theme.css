@@ -922,3 +922,24 @@ footer.site .sources { margin-top: 7px; }
 .tagseg { font-family: var(--mono); font-size: 10.5px; color: var(--mute);
           border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px;
           white-space: nowrap; }
+
+/* Fold topology. Data, so cool: strands take the brand blue and helices the violet, with
+   the sheet arcs in cyan behind them. Nothing here is brass; the diagram is a measurement. */
+.topowrap { overflow-x: auto; padding: 4px 0 2px; }
+#topoDiagram { width: 100%; min-width: 640px; height: auto; display: block; }
+.topobb { stroke: var(--line); stroke-width: 2; }
+.topohelix { fill: var(--violet); opacity: .92; }
+.topostrand { fill: var(--accent); opacity: .95; }
+.topoarc { fill: none; stroke: var(--cyan); opacity: .55; }
+.topohelix:hover, .topostrand:hover { opacity: 1; }
+.topotick { stroke: var(--line); stroke-width: 1; }
+.topolabel {
+  fill: var(--mute); font-family: var(--mono); font-size: 11px; text-anchor: middle;
+}
+.topokey { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px;
+           font-size: 11.5px; color: var(--mute); }
+.topokey i { display: inline-block; width: 16px; height: 9px; margin-right: 6px;
+             vertical-align: middle; border-radius: 2px; }
+.topokey .k-strand { background: var(--accent); }
+.topokey .k-helix  { background: var(--violet); border-radius: 5px; }
+.topokey .k-arc    { background: none; border-bottom: 2px solid var(--cyan); height: 6px; }

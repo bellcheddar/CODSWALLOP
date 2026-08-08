@@ -231,8 +231,52 @@ def _warm_artefacts(args) -> bool:
     from codswallop import embed, family, resolve
 
     every_ok = _rebuild_embeddings(artefacts, args)
+    # After the embeddings, deliberately: topology is drawn on the reference structure the
+    # embedding chose, so a family embedded in this same pass gets its diagram on the
+    # structure it was actually superposed onto.
+    every_ok = _rebuild_topology(artefacts) and every_ok
     if args.contacts:
         every_ok = _rebuild_contacts(artefacts, args) and every_ok
+    return every_ok
+
+
+def _rebuild_topology(artefacts) -> bool:
+    """Assign secondary structure for any family missing it.
+
+    Cheap next to the embedding: one structure, one DSSP run, a few seconds. It goes after
+    the embedding because it uses the same reference structure, so a family embedded in this
+    same pass gets its topology drawn on the structure it was superposed onto.
+    """
+    from codswallop import family, resolve, topology
+
+    todo = artefacts.stale("topology")
+    if not todo:
+        return True
+    print(f"\n{len(todo)} topology artefact(s) missing or out of date "
+          f"(v{artefacts.topology_io.VERSION}); rebuilding:")
+    every_ok = True
+    for s in todo:
+        if not s["query"]:
+            print(f"  skip  {s['slug']}: no stored query to rebuild from", flush=True)
+            continue
+        t0 = time.time()
+        try:
+            r = resolve.resolve(s["query"])
+            if r["status"] != "resolved":
+                print(f"  skip  {s['slug']}: {r.get('message') or 'ambiguous'}", flush=True)
+                continue
+            fam = family.get_or_build(r["seed"], s["query"])
+            art = topology.write(fam)
+            if not art:
+                print(f"  skip  {s['slug']}: no secondary structure could be assigned",
+                      flush=True)
+                continue
+            print(f"  dssp  {s['slug']:<44} {art['n_strands']:>3} strands "
+                  f"{art['n_helices']:>3} helices  {art['method']:<6} "
+                  f"{time.time() - t0:>5.0f}s", flush=True)
+        except Exception as exc:                    # noqa: BLE001
+            every_ok = False
+            print(f"  FAIL  {s['slug']}: {exc}", flush=True)
     return every_ok
 
 

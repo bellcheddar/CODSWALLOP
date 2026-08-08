@@ -42,16 +42,7 @@ SECTIONS = [
         {"id": "quality", "label": "Quality", "phase": 3, "live": True},
     {"id": "assembly", "label": "Assembly", "phase": 4, "live": True},
     {"id": "motifs", "label": "Motifs", "phase": 4, "live": True},
-    {
-        "id": "topology", "label": "Topology", "phase": 4,
-        "blurb": "Fold cartoons generated in-house, plus everything needed to hand the "
-                 "family to somebody else.",
-        "bullets": [
-            "Topology diagrams from DSSP as custom SVG: strands as arrows, helices as "
-            "cylinders, connectivity preserved (built in-house, not scraped from PDBsum)",
-            "<b>Dossier export</b>: one-click self-contained HTML and PDF family report",
-        ],
-    },
+    {"id": "topology", "label": "Topology", "phase": 4, "live": True},
 ]
 
 

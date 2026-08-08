@@ -383,6 +383,22 @@
       </div>
     </section>
 
+    {# ---- topology ----------------------------------------------------------------- #}
+    <section id="sec-topology" class="section" role="tabpanel" hidden>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Fold topology</h2>
+          <span class="sub" id="topoSub"></span>
+        </div>
+        <div class="panel-body">
+          <div id="topoIntro"></div>
+          <div class="topowrap"><svg id="topoDiagram" role="img"
+               aria-label="Secondary structure elements and sheet pairing"></svg></div>
+          <div id="topoLegend"></div>
+        </div>
+      </div>
+    </section>
+
     {# ============================ PHASES STILL TO LAND ============================= #}
     {% for s in sections if s.phase > 1 and not s.live %}
     <section id="sec-{{ s.id }}" class="section" role="tabpanel" hidden>

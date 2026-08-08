@@ -1618,6 +1618,111 @@
       }).join("") + "</tbody></table></div>";
   }
 
+  /* ---- fold topology -----------------------------------------------------------------
+     Drawn on the seed axis, so an element sits directly under the same residues as the
+     conservation track, the coverage census and the domain ribbon. The arcs are the part a
+     linear track cannot express: which strands actually hydrogen-bond to which, from DSSP's
+     bridge partners, which is what makes this a topology diagram rather than a ribbon. */
+  function renderTopology() {
+    var t = S.family.topology;
+    var svg = $("topoDiagram");
+    if (!svg) return;
+    if (!t || !t.elements || !t.elements.length) {
+      $("topoSub").textContent = "no topology for this family yet";
+      svg.innerHTML = "";
+      $("topoIntro").innerHTML = '<p class="empty">Secondary structure is assigned by DSSP ' +
+        "on a workstation and shipped as an artefact, like the structural embedding. This " +
+        "family has been queued for it.</p>";
+      $("topoLegend").innerHTML = "";
+      return;
+    }
+
+    $("topoSub").textContent = t.n_strands + " strands · " + t.n_helices + " helices · " +
+      t.coverage + "% of the seed";
+    $("topoIntro").innerHTML =
+      '<p class="caveat">Assigned by <b>' + esc(t.method) + "</b> on " +
+      '<a href="https://www.rcsb.org/structure/' + encodeURIComponent(t.reference) + '" ' +
+      'target="_blank" rel="noopener noreferrer">' + esc(t.reference) + "</a>" +
+      (t.chain ? " chain " + esc(t.chain) : "") + ", the same structure the family is " +
+      "superposed onto, and mapped onto seed coordinates by alignment rather than by an " +
+      "assumed offset. " +
+      (t.pairings && t.pairings.length
+        ? "The arcs are hydrogen-bonded strand pairs, thicker where more bridges support " +
+          "them: that is the sheet, and it is the part a linear track cannot show."
+        : "This assignment carries no bridge partners, so no sheet pairing is drawn rather " +
+          "than guessed at.") + "</p>";
+
+    // The elements sit near the top, the pairing arcs hang below them, and the residue
+    // scale goes under both. Drawing the scale directly beneath the axis put the arcs
+    // straight through the numbers.
+    var W = 1000, PAD = 14, axisY = 40, ARC_MAX = 78, H = axisY + ARC_MAX + 46;
+    var L = t.seed_length || 1;
+    var x = function (pos) { return PAD + (W - 2 * PAD) * (pos - 1) / Math.max(1, L - 1); };
+
+    var parts = [];
+    // The backbone: everything between the elements, so the diagram reads as one chain.
+    parts.push('<line x1="' + PAD + '" y1="' + axisY + '" x2="' + (W - PAD) + '" y2="' +
+               axisY + '" class="topobb"/>');
+
+    // Pairing arcs first, so the elements sit on top of them.
+    var byId = {};
+    t.elements.forEach(function (e) { byId[e.id] = e; });
+    (t.pairings || []).forEach(function (p) {
+      var a = byId[p.a], b = byId[p.b];
+      if (!a || !b) return;
+      var x1 = (x(a.start) + x(a.end)) / 2, x2 = (x(b.start) + x(b.end)) / 2;
+      var span = Math.abs(x2 - x1);
+      var lift = Math.min(ARC_MAX, 18 + span * 0.28);
+      parts.push('<path class="topoarc" d="M' + x1.toFixed(1) + " " + axisY +
+                 " Q " + ((x1 + x2) / 2).toFixed(1) + " " + (axisY + lift).toFixed(1) +
+                 " " + x2.toFixed(1) + " " + axisY + '" stroke-width="' +
+                 Math.min(3.4, 0.8 + p.bridges * 0.14).toFixed(2) + '">' +
+                 "<title>" + esc(a.start + "–" + a.end) + " pairs with " +
+                 esc(b.start + "–" + b.end) + ", " + p.bridges + " bridges</title></path>");
+    });
+
+    t.elements.forEach(function (e) {
+      var x1 = x(e.start), x2 = x(e.end), w = Math.max(3, x2 - x1);
+      var title = "<title>" + (e.kind === "helix" ? "Helix " : "Strand ") +
+        e.start + "–" + e.end + " (" + e.length + " residues)</title>";
+      if (e.kind === "helix") {
+        // A cylinder: a rounded body, so it reads as a helix at a glance without the
+        // coil-drawing that turns into noise at this width.
+        parts.push('<rect class="topohelix" x="' + x1.toFixed(1) + '" y="' + (axisY - 13) +
+                   '" width="' + w.toFixed(1) + '" height="26" rx="12">' + title + "</rect>");
+      } else {
+        // An arrow, pointing N to C, with the head a fixed share of the body so a short
+        // strand is still recognisably an arrow rather than a triangle.
+        var head = Math.min(11, w * 0.45), body = Math.max(1, w - head);
+        parts.push('<path class="topostrand" d="M' + x1.toFixed(1) + " " + (axisY - 7) +
+                   " h" + body.toFixed(1) + " v-5 l" + head.toFixed(1) + " 12 l-" +
+                   head.toFixed(1) + " 12 v-5 h-" + body.toFixed(1) + ' z">' + title +
+                   "</path>");
+      }
+    });
+
+    // A residue scale, so a position on the diagram can be read off rather than estimated.
+    var step = L > 600 ? 100 : (L > 200 ? 50 : 20);
+    for (var pos = 1; pos <= L; pos += step) {
+      var ty = axisY + ARC_MAX + 14;
+      parts.push('<line class="topotick" x1="' + x(pos).toFixed(1) + '" y1="' + ty +
+                 '" x2="' + x(pos).toFixed(1) + '" y2="' + (ty + 6) + '"/>');
+      parts.push('<text class="topolabel" x="' + x(pos).toFixed(1) + '" y="' + (ty + 19) +
+                 '">' + pos + "</text>");
+    }
+
+    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+    svg.innerHTML = parts.join("");
+
+    $("topoLegend").innerHTML =
+      '<div class="topokey"><span><i class="k-strand"></i>&beta; strand, N to C</span>' +
+      '<span><i class="k-helix"></i>&alpha; helix</span>' +
+      (t.pairings && t.pairings.length
+        ? '<span><i class="k-arc"></i>hydrogen-bonded strand pair</span>' : "") +
+      "</div>";
+  }
+
   function renderQuality() {
     var q = S.family.quality || { n: 0, rows: [] };
     if (!q.n) {
@@ -2163,6 +2268,7 @@
     renderQuality();
     renderAssembly();
     renderMotifs();
+    renderTopology();
     renderKnownBlocks();
 
     recompute();

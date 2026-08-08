@@ -19,9 +19,9 @@ DROPLET_PATH="${DROPLET_PATH:-/opt/codswallop}"
 SSH_KEY="${SSH_KEY:-}"
 
 [[ -z "$DROPLET_SSH" ]] && { echo "DROPLET_SSH is not set (see .env.example)."; exit 1; }
-[[ -d data/embeddings || -d data/contacts ]] || { echo "Nothing to push. Run: python CODSWALLOP.py embed <query>"; exit 1; }
+[[ -d data/embeddings || -d data/contacts || -d data/topology ]] || { echo "Nothing to push. Run: python CODSWALLOP.py embed <query>"; exit 1; }
 
-n=$(find data/embeddings data/contacts -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
+n=$(find data/embeddings data/contacts data/topology -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
 echo "==> Pushing ${n} artefact(s) to ${DROPLET_SSH}:${DROPLET_PATH}/data/"
 
 SSH_OPTS=()
@@ -30,7 +30,7 @@ SSH_OPTS=()
 # No --delete: an embedding on the server that this workstation has not computed is not
 # stale, it was computed somewhere else. Removing artefacts is a deliberate act, not a
 # side effect of pushing from a different machine.
-for dir in embeddings contacts; do
+for dir in embeddings contacts topology; do
   [[ -d "data/$dir" ]] || continue
   rsync -az ${SSH_OPTS[@]+"${SSH_OPTS[@]}"} \
     --include '*/' --include '*.json' --exclude '*' \
