@@ -1366,6 +1366,33 @@
       "<th>Logo</th></tr></thead><tbody>" + rows + "</tbody></table></div>";
   }
 
+  /* The map says which of the two things it is showing. A placeholder that looks like a
+     measurement is worse than no map, and an embedding that goes unlabelled wastes the
+     one thing that makes it worth the compute. */
+  function renderFieldNote(map) {
+    var el = $("fieldNote");
+    if (!el) return;
+    if (map && map.embedded) {
+      el.innerHTML = "<b>Structural embedding.</b> Position is multidimensional scaling of " +
+        "the pairwise TM-score matrix over " + map.n_representatives +
+        " representative structures (" + commas(map.n_pairs) + " alignments, median TM " +
+        map.median_tm + "), so distance is structural distance and the 0.5 contour is the " +
+        "conventional same-fold boundary. Size is 1/resolution; colour is method; an amber " +
+        "halo means ligand-bound." +
+        (map.approximated
+          ? " " + commas(map.approximated) + " of " + commas(map.nodes.length) +
+            " entries use a construct that was not among the representatives and are placed " +
+            "at the nearest one by identity."
+          : "");
+    } else {
+      el.innerHTML = "<b>Placeholder layout.</b> Outward is decreasing identity to the seed, " +
+        "ranked; sector is source organism; size is 1/resolution; colour is method; an amber " +
+        "halo means ligand-bound. This family has no structural embedding yet: run " +
+        "<code>CODSWALLOP.py embed</code> on a workstation and the positions become a real " +
+        "TM-score embedding.";
+    }
+  }
+
   /* ---- the Structures panel ------------------------------------------------------- */
   function renderStructures() {
     var pick = $("structurePick");
@@ -1422,6 +1449,7 @@
       onHover: setHot,
       onPick: openCard
     });
+    renderFieldNote(fam.map);
     constellation.render(fam.map, S.members);
 
     subscribe(function () {

@@ -44,7 +44,81 @@ def _golden_jitter(i: int) -> float:
     return (i * 0.6180339887498949) % 1.0
 
 
-def compute(members: list[dict], identity_floor: int = 30) -> dict:
+def _from_embedding(members: list[dict], embedding: dict) -> dict:
+    """Position every member from the pairwise TM-score matrix.
+
+    Representatives carry their MDS coordinates directly. Every other member inherits the
+    position of its own construct's representative, which is exact: they are the same
+    sequence, so they would land on the same point anyway.
+
+    Members whose construct was not among the representatives (the cap is on pairs, and it
+    bites on a family with hundreds of distinct constructs) inherit from the representative
+    closest in identity to the seed. That is an approximation and it is labelled as one on
+    the panel, rather than being left to look like a measurement.
+    """
+    reps = embedding["representatives"]
+    by_seq = {r["seq_id"]: r for r in reps}
+    # Representatives sorted by identity, for the nearest-identity fallback.
+    ident_of = {}
+    for m in members:
+        r = by_seq.get(m.get("seq_id"))
+        if r and m.get("identity") is not None:
+            ident_of.setdefault(r["seq_id"], m["identity"])
+    ranked = sorted(((ident_of.get(r["seq_id"], 0.0), r) for r in reps), key=lambda t: t[0])
+
+    nodes, approximated = [], 0
+    per_point: dict[tuple, int] = {}
+    for m in members:
+        r = by_seq.get(m.get("seq_id"))
+        if r is None:
+            approximated += 1
+            target = m.get("identity")
+            if target is None or not ranked:
+                r = reps[0]
+            else:
+                r = min(ranked, key=lambda t: abs(t[0] - target))[1]
+        # Identical constructs share a point exactly, so spread them just enough to be
+        # individually hoverable without implying a difference that is not there.
+        key = (r["x"], r["y"])
+        k = per_point.get(key, 0)
+        per_point[key] = k + 1
+        angle = 2 * math.pi * _golden_jitter(k)
+        radius = 0.012 * math.sqrt(k)
+        nodes.append({
+            "id": m["entity_id"], "pdb_id": m["pdb_id"],
+            "cluster": 0, "cluster_name": "",
+            "x": round(r["x"] + radius * math.cos(angle), 4),
+            "y": round(r["y"] + radius * math.sin(angle), 4),
+        })
+
+    # Edges between representatives above the conventional same-fold threshold. This is what
+    # the plan asked for all along: "edges between entries above the identity threshold",
+    # with TM-score standing in for identity now that there is one.
+    tm = embedding.get("tm") or []
+    edges = []
+    for i in range(len(reps)):
+        for j in range(i + 1, len(reps)):
+            if i < len(tm) and j < len(tm[i]) and tm[i][j] >= 0.5:
+                edges.append({"a": reps[i]["seq_id"], "b": reps[j]["seq_id"]})
+    edges = edges[:MAX_EDGES]
+
+    return {
+        "nodes": nodes,
+        # Edges reference construct ids, not entity ids, so the renderer resolves them
+        # through the representative each node came from.
+        "edges": [],
+        "clusters": [],
+        "placeholder": False,
+        "embedded": True,
+        "n_representatives": len(reps),
+        "n_pairs": embedding.get("n_pairs"),
+        "median_tm": embedding.get("median_tm"),
+        "approximated": approximated,
+    }
+
+
+def compute(members: list[dict], identity_floor: int = 30,
+            embedding: Optional[dict] = None) -> dict:
     """Position every member, returning nodes, edges and cluster labels.
 
     Coordinates are in a -1..1 box; the client scales them to whatever the panel is. Doing
@@ -53,6 +127,12 @@ def compute(members: list[dict], identity_floor: int = 30) -> dict:
     """
     if not members:
         return {"nodes": [], "edges": [], "clusters": []}
+
+    # A real structural embedding retires everything below. The placeholder exists only
+    # because the matrix is expensive; once it has been computed for a family, the map means
+    # what section 1.2 of the plan always said it meant.
+    if embedding and embedding.get("representatives"):
+        return _from_embedding(members, embedding)
 
     # ---- cluster by source organism ---------------------------------------------------
     counts: dict[str, int] = {}

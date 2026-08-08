@@ -1,0 +1,10 @@
+# Local structural pipeline. NOT installed on the droplet: it has two cores shared with
+# eight apps and 19 GB free, so the TM-score matrix is computed on a workstation and the
+# resulting JSON artefact is rsynced (deploy/push_embeddings.sh). The web app reads that
+# artefact and falls back to the sequence-identity placeholder when there is none.
+-r requirements.txt
+
+tmtools>=0.3            # TM-align bindings: the pairwise structural similarity matrix
+biotite>=1.0            # mmCIF parsing, alpha-carbon extraction
+numpy>=1.24             # classical MDS (eigendecomposition), no scipy needed
+pytest>=8.0             # the test suite

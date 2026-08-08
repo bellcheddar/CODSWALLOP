@@ -134,3 +134,35 @@ def parallel_map(fn: Callable, items: list, workers: Optional[int] = None) -> li
         return [fn(x) for x in items]
     with ThreadPoolExecutor(max_workers=min(n, len(items))) as pool:
         return list(pool.map(fn, items))
+
+
+def download(url: str, dest, skip_if_exists: bool = True):
+    """Stream a URL to `dest` (a Path). Returns dest, or None on 404.
+
+    Written to a unique temporary name and moved into place, so a half-written file can
+    never be mistaken for a complete one: the cache check is `exists()`, and an interrupted
+    download that left a truncated mmCIF behind would be served as though it were whole for
+    as long as the file sat there.
+    """
+    import os
+    import threading
+    from pathlib import Path
+
+    dest = Path(dest)
+    if skip_if_exists and dest.exists() and dest.stat().st_size > 0:
+        return dest
+    resp = get(url, stream=True)
+    if resp.status_code == 404:
+        return None
+    resp.raise_for_status()
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(f"{dest.suffix}.{os.getpid()}.{threading.get_ident()}.part")
+    try:
+        with open(tmp, "wb") as fh:
+            for chunk in resp.iter_content(chunk_size=1 << 16):
+                fh.write(chunk)
+        tmp.replace(dest)
+    finally:
+        if tmp.exists():
+            tmp.unlink(missing_ok=True)
+    return dest

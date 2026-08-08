@@ -189,3 +189,57 @@ def test_deliberately_mutated_positions_get_their_own_list():
     assert 3 in hits, "a position with real minority substitution is an engineered position"
     assert {v["aa"] for v in hits[3]["variants"]} == {"A", "Y"}
     assert 3 not in out["conserved"], "and it is deliberately NOT in the conserved list"
+
+
+# ---- the structural embedding -----------------------------------------------------------
+def test_embedding_positions_members_by_their_construct():
+    """Members of the same construct land on the same point; the rest are approximated.
+
+    The regression: the map used to be computed before _compact put seq_id on members, so
+    nothing matched a representative and all 1,688 lysozyme entries were reported as
+    approximated while looking like a measurement.
+    """
+    emb = {
+        "representatives": [
+            {"seq_id": "a", "pdb_id": "1AAA", "x": -0.8, "y": 0.0},
+            {"seq_id": "b", "pdb_id": "1BBB", "x": 0.8, "y": 0.0},
+        ],
+        "tm": [[1.0, 0.9], [0.9, 1.0]], "n_pairs": 1, "median_tm": 0.9,
+    }
+    members = [
+        {"entity_id": "E1", "pdb_id": "1AAA", "seq_id": "a", "identity": 100.0},
+        {"entity_id": "E2", "pdb_id": "1AAC", "seq_id": "a", "identity": 100.0},
+        {"entity_id": "E3", "pdb_id": "1BBB", "seq_id": "b", "identity": 60.0},
+        {"entity_id": "E4", "pdb_id": "1ZZZ", "seq_id": "z", "identity": 61.0},
+    ]
+    out = layout.compute(members, 30, embedding=emb)
+    assert out["embedded"] is True
+    assert out["approximated"] == 1, "only the unrepresented construct is approximated"
+    by_id = {n["id"]: n for n in out["nodes"]}
+    # The two entries sharing construct "a" sit together, well away from "b".
+    assert abs(by_id["E1"]["x"] - by_id["E2"]["x"]) < 0.1
+    assert by_id["E1"]["x"] < 0 and by_id["E3"]["x"] > 0
+    # The unrepresented one inherits from the nearest representative by identity.
+    assert by_id["E4"]["x"] > 0
+
+
+def test_no_embedding_falls_back_to_the_placeholder():
+    members = [{"entity_id": f"E{i}", "pdb_id": f"P{i:03d}", "identity": 90.0 - i,
+                "organism": "Homo sapiens", "resolution": 2.0} for i in range(10)]
+    out = layout.compute(members, 30, embedding=None)
+    assert out.get("embedded") is not True
+    assert out.get("placeholder") is True
+
+
+def test_mds_puts_dissimilar_structures_further_apart():
+    import numpy as np
+    from codswallop.embed import embed as mds
+    # Two tight pairs, far from each other.
+    tm = np.array([[1.0, 0.95, 0.2, 0.2],
+                   [0.95, 1.0, 0.2, 0.2],
+                   [0.2, 0.2, 1.0, 0.95],
+                   [0.2, 0.2, 0.95, 1.0]])
+    c = mds(tm)
+    within = np.linalg.norm(c[0] - c[1])
+    between = np.linalg.norm(c[0] - c[2])
+    assert between > within * 3, "the embedding must separate the two folds"

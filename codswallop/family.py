@@ -171,9 +171,6 @@ def decorate(fam: dict) -> dict:
     # family large enough to hit the cap, every surviving member can sit above 95 % identity,
     # and spreading those across the full radius is the difference between a readable map and
     # every node stacked on the centre point.
-    identities = [m["identity"] for m in members if m.get("identity") is not None]
-    floor = min(identities) if identities else config.IDENTITY_MIN
-    fam["map"] = layout.compute(members, min(floor, config.IDENTITY_MAX - 1))
 
     # Crystallisation and validation summaries read the entry rows, and _compact drops those
     # once the derived views exist. Computed before it, not after.
@@ -227,6 +224,21 @@ def decorate(fam: dict) -> dict:
         ("msa", msa_engine.PARSE_VERSION, fam["slug"], sorted(fam["sequences"])),
         lambda: msa_engine.build(fam.get("seed_sequence") or "", fam["sequences"], weights),
     ), None)
+    # The map goes LAST, after _compact has put seq_id on every member and the constructs
+    # exist. Placed any earlier it silently falls back to the placeholder even when a real
+    # embedding is present, because the representatives are keyed on seq_id and nothing
+    # matches: the first version reported all 1,688 members as approximated.
+    #
+    # Three separate bugs in this function have now come from the same cause. The order here
+    # is a dependency chain, not a list: density -> stats -> compaction -> constructs -> map.
+    identities = [m["identity"] for m in members if m.get("identity") is not None]
+    floor = min(identities) if identities else config.IDENTITY_MIN
+    # The structural embedding when a workstation has computed one for this family, the
+    # sequence-identity placeholder when it has not. Read through embed_io, which imports
+    # nothing heavy, so the droplet never needs numpy, biotite or tmtools.
+    fam["map"] = layout.compute(members, min(floor, config.IDENTITY_MAX - 1),
+                                embedding=_embedding_for(fam["slug"]))
+
     fam["domains"] = _optional("domains", lambda: build_domains(fam, members),
                                {"sources": [], "domains": []})
     fam["orthologues"] = _optional(
@@ -279,6 +291,16 @@ def _attach_density(fam: dict, members: list[dict]) -> None:
             domains_by_entity[m["entity_id"]] = rec["domains"]
 
     fam["domains_by_entity"] = domains_by_entity
+
+
+def _embedding_for(slug: str) -> Optional[dict]:
+    """Read the structural embedding artefact, if a workstation has produced one."""
+    try:
+        from .embed_io import load
+        return load(slug)
+    except Exception:
+        logger.warning("could not read the embedding for %s", slug, exc_info=True)
+        return None
 
 
 def _optional(name: str, build, fallback):

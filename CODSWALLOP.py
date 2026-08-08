@@ -82,6 +82,46 @@ def cmd_build(args) -> int:
     return 0
 
 
+def cmd_embed(args) -> int:
+    """Compute the pairwise TM-score matrix and the map positions it implies.
+
+    Workstation only: this downloads mmCIF files and does real numerical work. The droplet
+    reads the JSON artefact it writes; push it with deploy/push_embeddings.sh.
+    """
+    from codswallop import embed, family, resolve
+
+    db.init()
+    result = resolve.resolve(args.query)
+    if result["status"] != "resolved":
+        print(result.get("message") or result.get("prompt"), file=sys.stderr)
+        return 1
+    fam = family.get_or_build(result["seed"], args.query)
+    print(f"{fam['name']}: {fam['stats']['entries']} entries, "
+          f"{len(fam['constructs'])} distinct constructs")
+
+    last = [0.0]
+
+    def progress(stage, i, n, label):
+        if stage == "fetch":
+            if time.time() - last[0] > 1.0 or i == n:
+                last[0] = time.time()
+                print(f"\r  fetching structures {i}/{n} {label:<8}", end="", flush=True)
+        else:
+            print(f"\r  aligning {n:,} pairs...{' ' * 20}", end="", flush=True)
+
+    t0 = time.time()
+    art = embed.build(fam, max_representatives=args.max or embed.MAX_REPRESENTATIVES,
+                      progress=progress)
+    print()
+    if not art:
+        print("  Not enough usable structures to embed.", file=sys.stderr)
+        return 1
+    print(f"  {art['n_representatives']} representatives, {art['n_pairs']:,} pairs, "
+          f"median TM {art['median_tm']}, {time.time() - t0:.0f}s total")
+    print(f"  wrote {embed.artefact_path(fam['slug'])}")
+    return 0
+
+
 def cmd_warm(args) -> int:
     """Pre-build families, so a cold cache is paid for by cron rather than by a reader.
 
@@ -149,6 +189,12 @@ def main(argv=None) -> int:
     sp.add_argument("query", help="PDB ID, UniProt accession, gene, Pfam/InterPro, sequence or name")
     sp.add_argument("--refresh", action="store_true", help="rebuild even if cached")
     sp.set_defaults(fn=cmd_build)
+
+    sp = sub.add_parser("embed", help="compute the structural embedding (workstation only)")
+    sp.add_argument("query", help="the family to embed")
+    sp.add_argument("--max", type=int, default=None,
+                    help="cap on representative structures (default 260)")
+    sp.set_defaults(fn=cmd_embed)
 
     sp = sub.add_parser("warm", help="pre-build families so the first visitor waits for nothing")
     sp.add_argument("queries", nargs="*", help="queries to warm (default: everything already filed)")
