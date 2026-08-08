@@ -80,7 +80,6 @@
   function renderHeader() {
     var f = S.family;
     $("famName").textContent = f.name || CFG.slug;
-    $("stampCount").textContent = commas(f.stats.entries) + " ENTRIES";
     document.title = (f.name || CFG.slug) + " — CODSWALLOP";
 
     var bits = [];
@@ -118,27 +117,6 @@
       { k: "Distinct ligands", v: commas(s.ligands) },
       { k: "Best resolution", v: res(s.best_resolution) },
       { k: "Median resolution", v: res(s.median_resolution) },
-      // Prefer the density figure once Phase 2 has measured it: "present in the construct
-      // but not in the density" is the question a construct designer actually has, and the
-      // construct-level figure reads 0 % for any well-studied protein. Falls back to the
-      // Phase 1 figure, labelled differently, when no per-chain data was available.
-      (c.rarely_resolved_pct != null ? {
-        k: "Rarely resolved", flag: true,
-        v: c.rarely_resolved_pct + '%<small> of seed</small>',
-        title: c.rarely_resolved + " of " + c.length + " seed residues are resolved in under " +
-          Math.round(c.rarely_cut * 100) + "% of the constructs that contained them. " +
-          "Present in the crystal, absent from the density."
-      } : {
-        k: "Thinly covered", flag: true,
-        v: c.thin_pct + '%<small> of seed</small>',
-        title: "Seed residues present in fewer than " + c.thin_cut + " of the family's " +
-          "constructs (" + c.thin + " of " + c.length + " residues). Per-chain density was " +
-          "not available for this family."
-      }),
-      {
-        k: "Median construct", v: c.median_coverage + '%<small> of seed</small>',
-        title: "The median deposited construct contains this fraction of the seed sequence."
-      }
     ];
     $("statStrip").innerHTML = tiles.map(function (t) {
       return '<div class="stat' + (t.flag ? " flag" : "") + '"' +
@@ -356,10 +334,26 @@
      ================================================================================== */
   var rowsById = {};
 
+  function makeRow(m) {
+    var row = document.createElement("div");
+    row.className = "erow" + (m.has_ligand ? " holo" : "");
+    row.setAttribute("data-id", m.entity_id);
+    row.setAttribute("tabindex", "0");
+    row.setAttribute("role", "button");
+    row.innerHTML =
+      '<span class="pdbid"><span class="mdot" style="background:' +
+        Constellation.methodColour(m.method) + '"></span>' + esc(m.pdb_id) + "</span>" +
+      '<span class="desc">' + esc(m.description || m.title || "") + "</span>" +
+      '<span class="res">' + (m.resolution ? Number(m.resolution).toFixed(2) : "\u2014") +
+      "</span>";
+    return row;
+  }
+
   function renderList() {
     var box = $("entryRows");
     box.innerHTML = "";
     rowsById = {};
+    _hoisted = null;              // the node it referred to has just been discarded
 
     var shown = S.members.filter(function (m) { return S.visible.has(m.entity_id); });
     $("listCount").textContent = commas(shown.length);
@@ -375,16 +369,7 @@
     var LIMIT = 300;
     var frag = document.createDocumentFragment();
     shown.slice(0, LIMIT).forEach(function (m) {
-      var row = document.createElement("div");
-      row.className = "erow" + (m.has_ligand ? " holo" : "");
-      row.setAttribute("data-id", m.entity_id);
-      row.setAttribute("tabindex", "0");
-      row.setAttribute("role", "button");
-      row.innerHTML =
-        '<span class="pdbid"><span class="mdot" style="background:' +
-          Constellation.methodColour(m.method) + '"></span>' + esc(m.pdb_id) + "</span>" +
-        '<span class="desc">' + esc(m.description || m.title || "") + "</span>" +
-        '<span class="res">' + (m.resolution ? Number(m.resolution).toFixed(2) : "—") + "</span>";
+      var row = makeRow(m);
       frag.appendChild(row);
       rowsById[m.entity_id] = row;
     });
@@ -428,18 +413,57 @@
      ================================================================================== */
   var constellation = null;
 
+  // The row currently pulled to the top of the entry list, and where it came from.
+  var _hoisted = null;
+
+  function _unhoist() {
+    if (!_hoisted) return;
+    var box = $("entryRows");
+    // `before` may have been removed by a re-render; appending is then the honest answer,
+    // and a re-render rebuilds the order from scratch anyway.
+    if (_hoisted.borrowed) {
+      // It was never part of the list: take it out again rather than growing the list by
+      // one row for every node the cursor crosses.
+      if (_hoisted.node.parentNode === box) box.removeChild(_hoisted.node);
+      delete rowsById[_hoisted.id];
+    } else if (_hoisted.node.parentNode === box) {
+      box.insertBefore(_hoisted.node, _hoisted.before && _hoisted.before.parentNode === box
+                                      ? _hoisted.before : null);
+    }
+    _hoisted = null;
+  }
+
   function setHot(id) {
     if (S.hot === id) return;
     if (S.hot && rowsById[S.hot]) rowsById[S.hot].classList.remove("hot");
+    _unhoist();
     S.hot = id;
-    if (id && rowsById[id]) {
-      rowsById[id].classList.add("hot");
-      // Only scroll when the row is actually out of view: a list that jumps under the
-      // cursor on every hover is worse than one that occasionally does not follow.
-      var r = rowsById[id].getBoundingClientRect();
-      var b = $("entryRows").getBoundingClientRect();
-      if (r.top < b.top || r.bottom > b.bottom) {
-        rowsById[id].scrollIntoView({ block: "nearest" });
+    if (id) {
+      var row = rowsById[id];
+      var borrowed = false;
+      if (!row) {
+        // The list holds the first 300 of what passes the filters, and a hovered node is
+        // usually not among them: 1,190 of carbonic anhydrase's 1,490 entries have no row
+        // at all. Build one for the hover rather than leaving the list unresponsive over
+        // most of its own map.
+        var m = memberById(id);
+        if (m) { row = makeRow(m); borrowed = true; rowsById[id] = row; }
+      }
+      if (!row) { if (constellation) constellation.setHot(id); highlightTableRow(id); return; }
+      row.classList.add("hot");
+      // Lift the hovered entry to the head of the list rather than scrolling to it. On a
+      // 2,000-entry family the row was often hundreds of places down, and scrolling to it
+      // moved everything else under the reader's eye to show one row. Its original place is
+      // remembered so the list returns to resolution order when the cursor leaves.
+      var box = $("entryRows");
+      if (borrowed) {
+        _hoisted = { node: row, before: null, borrowed: true, id: id };
+        box.insertBefore(row, box.firstChild);
+        box.scrollTop = 0;
+      } else if (row.parentNode === box && box.firstChild !== row) {
+        _hoisted = { node: row, before: row.nextSibling };
+        box.insertBefore(row, box.firstChild);
+        box.scrollTop = 0;
       }
     }
     if (constellation) constellation.setHot(id);
@@ -589,6 +613,259 @@
     S.picked = null;
     writeUrl();
     setTimeout(function () { $("indexCard").hidden = true; }, 320);
+  }
+
+  /* ==================================================================================
+     7b. The shared detail drawer
+     ==================================================================================
+     Every panel here is a table of rows that had more to say than a row can hold: what a
+     construct actually is, what an orthologue covers, what a component looks like and where
+     it binds, how a hot residue's contacts break down. The entry index card already solved
+     that problem, so this is the same chrome rather than a second thing to learn.
+
+     One drawer, opened with a title, a subtitle and a body. Panels supply content; none of
+     them knows how the drawer opens or closes. */
+  var detailViewer = null;             // a Mol* instance living inside the drawer
+
+  function openDetail(title, subtitle, html, onOpen) {
+    var card = $("detailCard");
+    $("detailTitle").textContent = title;
+    $("detailSubtitle").textContent = subtitle || "";
+    $("detailBody").innerHTML = html;
+    card.hidden = false;
+    $("scrim").classList.add("on");
+    // Next frame, so the transition has a start state to animate from rather than the
+    // element appearing already in place.
+    requestAnimationFrame(function () { card.classList.add("on"); });
+    if (onOpen) onOpen($("detailBody"));
+  }
+
+  function closeDetail() {
+    var card = $("detailCard");
+    card.classList.remove("on");
+    // Only drop the scrim if the entry card is not itself open behind this.
+    if ($("indexCard").hidden) $("scrim").classList.remove("on");
+    if (detailViewer) {
+      // A Mol* instance holds a WebGL context, and browsers cap those at around sixteen:
+      // opening a dozen ligands without disposing would silently stop rendering.
+      try { detailViewer.plugin.dispose(); } catch (e) { /* already gone */ }
+      detailViewer = null;
+    }
+    setTimeout(function () { card.hidden = true; $("detailBody").innerHTML = ""; }, 320);
+  }
+
+  /* ---- construct detail: what people actually made --------------------------------- */
+  function openConstructDetail(seqId) {
+    var c = null;
+    (S.family.constructs || []).forEach(function (x) { if (x.seq_id === seqId) c = x; });
+    if (!c) return;
+    var d = c.diff || {};
+    var pdbs = (c.pdb_ids || []).slice(0, 60);
+
+    var body = dl([
+      ["What it is", c.summary || "", "html"],
+      ["Reference", c.reference_name ? esc(c.reference_name) + " (" + esc(c.uniprot || "") + ")"
+                                     : null, "html"],
+      ["Length", c.length ? c.length + " residues" + (d.canonical_length
+        ? " of a " + d.canonical_length + "-residue canonical" : "") : null],
+      ["Spans", d.canonical_span ? "residues " + d.canonical_span[0] + "–" + d.canonical_span[1]
+                                 + " of the canonical" : null],
+      ["Used by", commas(c.n_entities) + " entit" + (c.n_entities === 1 ? "y" : "ies") +
+                  " across " + commas(c.n_entries) + " entries"],
+      ["Ligand-bound", c.holo != null ? commas(c.holo) + " of them" : null],
+      ["Best entry", c.best_pdb_id
+        ? '<a href="https://www.rcsb.org/structure/' + encodeURIComponent(c.best_pdb_id) +
+          '" target="_blank" rel="noopener noreferrer">' + esc(c.best_pdb_id) + "</a>" +
+          (c.best_resolution ? " at " + c.best_resolution.toFixed(2) + " Å" : "")
+        : null, "html"],
+      ["Organism", c.organism],
+    ]);
+
+    function chips(title, items, cls) {
+      if (!items || !items.length) return "";
+      return '<div class="dsect"><h4>' + esc(title) + "</h4><p>" +
+        items.map(function (i) {
+          return '<span class="dchip ' + (cls || "") + '">' + esc(i) + "</span>";
+        }).join(" ") + "</p></div>";
+    }
+
+    var muts = (d.mutations || []).map(function (m) {
+      return m.label + (m.classes && m.classes.length ? " (" + m.classes.join("; ") + ")" : "");
+    });
+    var extras =
+      chips("Expression tags", c.tags) +
+      chips("Protease sites", c.proteases) +
+      chips("Fusion partners", c.fusions, "warn") +
+      chips("Mutations", muts, muts.length ? "mut" : "") +
+      ((d.deletions || []).length
+        ? chips("Internal deletions", d.deletions.map(function (x) {
+            return "residues " + x.start + "–" + x.end;
+          })) : "") +
+      (d.semet ? '<div class="dsect"><h4>Selenomethionine</h4><p>This construct is SeMet ' +
+                 "substituted, which is a phasing decision rather than a property of the " +
+                 "protein.</p></div>" : "") +
+      (pdbs.length
+        ? '<div class="dsect"><h4>Entries using it <span class="n">' + commas(c.n_entries) +
+          "</span></h4><p>" + pdbs.map(function (p) {
+            return '<a class="dchip mono" href="https://www.rcsb.org/structure/' +
+              encodeURIComponent(p) + '" target="_blank" rel="noopener noreferrer">' +
+              esc(p) + "</a>";
+          }).join(" ") +
+          (c.n_entries > pdbs.length ? ' <span class="n">and ' +
+            commas(c.n_entries - pdbs.length) + " more</span>" : "") + "</p></div>"
+        : "");
+
+    openDetail(c.best_pdb_id ? "Construct · best in " + c.best_pdb_id : "Construct",
+               c.summary || "", body + extras);
+  }
+
+  /* ---- orthologue detail ------------------------------------------------------------ */
+  function openOrthologueDetail(organism) {
+    var o = null;
+    (S.family.orthologues || []).forEach(function (x) { if (x.organism === organism) o = x; });
+    if (!o) return;
+    // The entries this organism contributed, best resolution first, so the drawer answers
+    // "which structure should I actually look at for this species".
+    var mine = S.members.filter(function (m) { return m.organism === organism; })
+      .sort(function (a, b) {
+        return (a.resolution == null) - (b.resolution == null) ||
+               (a.resolution || 0) - (b.resolution || 0);
+      }).slice(0, 40);
+
+    var body = dl([
+      ["Entries", commas(o.entries) + " (" + commas(o.entities) + " polymer entities)"],
+      ["Ligand-bound", commas(o.holo || 0)],
+      ["Best resolution", o.best_resolution ? o.best_resolution.toFixed(2) + " Å" : null],
+      ["Median resolution", o.median_resolution ? o.median_resolution.toFixed(2) + " Å" : null],
+      ["Covers", o.coverage_pct != null ? o.coverage_pct + "% of the seed sequence" : null],
+      ["Accessions", (o.accessions || []).join(", ")],
+    ]);
+    var rows = mine.map(function (m) {
+      return "<tr><td class='n'><a href='https://www.rcsb.org/structure/" +
+        encodeURIComponent(m.pdb_id) + "' target='_blank' rel='noopener noreferrer'>" +
+        esc(m.pdb_id) + "</a></td><td class='n'>" +
+        (m.resolution ? m.resolution.toFixed(2) : "—") + "</td><td>" +
+        esc((m.description || m.title || "").slice(0, 70)) + "</td></tr>";
+    }).join("");
+    openDetail(organism, commas(o.entries) + " entries in this family",
+      body + '<div class="dsect"><h4>Its structures, best first</h4>' +
+      '<table class="ctable"><thead><tr><th>Entry</th><th>Å</th><th>What</th></tr></thead>' +
+      "<tbody>" + rows + "</tbody></table></div>");
+  }
+
+  /* ---- chemical component detail, with the molecule itself -------------------------- */
+  function openComponentDetail(id) {
+    var comps = (S.family.ligands || {}).components || [];
+    var c = null;
+    comps.forEach(function (x) { if (x.id === id) c = x; });
+    if (!c) return;
+
+    // Where in the family it binds, from the PLIP fingerprint: this component's own row.
+    var fp = ((S.family.contacts || {}).fingerprint || {})[id];
+    var sites = fp ? Object.keys(fp).map(function (p) { return [Number(p), fp[p]]; })
+                        .filter(function (r) { return r[1] > 0; })
+                        .sort(function (a, b) { return b[1] - a[1]; }).slice(0, 20) : [];
+
+    var body =
+      '<div class="dmol" id="detailMol"><p class="vstatus">Loading the molecule…</p></div>' +
+      dl([
+        ["Name", (c.name || "").toLowerCase()],
+        ["Class", c.klass],
+        ["Formula", c.formula],
+        ["Weight", c.weight ? c.weight + " Da" : null],
+        ["Atoms", c.atom_count],
+        ["Seen in", commas(c.count || 0) + " entit" + (c.count === 1 ? "y" : "ies")],
+        ["Best resolution", c.best_resolution ? c.best_resolution.toFixed(2) + " Å" : null],
+        ["Promoted", c.promoted ? c.reason : null],
+        ["SMILES", c.smiles ? '<code class="smiles">' + esc(c.smiles) + "</code>" : null, "html"],
+        ["InChIKey", c.inchikey ? '<code>' + esc(c.inchikey) + "</code>" : null, "html"],
+        ["At the RCSB", '<a href="https://www.rcsb.org/ligand/' + encodeURIComponent(c.id) +
+          '" target="_blank" rel="noopener noreferrer">' + esc(c.id) + "</a>", "html"],
+      ]) +
+      (sites.length
+        ? '<div class="dsect"><h4>Where it binds <span class="n">seed positions</span></h4>' +
+          "<p>" + sites.map(function (s) {
+            return '<span class="dchip mono">' + s[0] + ' <span class="n">' + s[1] +
+              "</span></span>";
+          }).join(" ") + "</p><p class=\"caveat\">Contacts from PLIP across the family, " +
+          "counted per seed residue.</p></div>"
+        : "");
+
+    openDetail(c.id, (c.name || "").toLowerCase(), body, function () {
+      // The component in 3D, from the RCSB's ideal-geometry file. Small, so it loads fast,
+      // and it is the actual molecule rather than a 2D depiction of it.
+      var host = document.getElementById("detailMol");
+      if (!host || !window.CodswallopViewer) return;
+      window.CodswallopViewer.showLigand(host, c.id).then(function (v) {
+        detailViewer = v;
+      }).catch(function () {
+        host.innerHTML = '<p class="vstatus error">No ideal-geometry file for ' +
+          esc(c.id) + " at the RCSB.</p>";
+      });
+    });
+  }
+
+  /* ---- hot residue detail: the contact breakdown ------------------------------------ */
+  var TYPE_LABEL = {
+    hydrogen_bond: "Hydrogen bonds", hydrophobic_interaction: "Hydrophobic contacts",
+    salt_bridge: "Salt bridges", water_bridge: "Water bridges",
+    pi_stacking: "π stacking", pi_cation_interaction: "π-cation",
+    halogen_bond: "Halogen bonds", metal_complex: "Metal coordination"
+  };
+
+  function openHotResidueDetail(pos) {
+    var c = S.family.contacts || {};
+    var r = null;
+    (c.hot_residues || []).forEach(function (x) { if (x.pos === pos) r = x; });
+    if (!r) return;
+
+    var types = r.types || [];
+    var total = types.reduce(function (a, t) { return a + t[1]; }, 0) || r.contacts || 1;
+    var bars = types.map(function (t) {
+      return '<tr><td>' + esc(TYPE_LABEL[t[0]] || t[0].replace(/_/g, " ")) + "</td>" +
+        '<td class="n">' + commas(t[1]) + "</td>" +
+        '<td class="n">' + Math.round(100 * t[1] / total) + "%</td>" +
+        '<td><span class="asmbar"><i style="width:' +
+        Math.max(2, Math.round(100 * t[1] / types[0][1])) + '%"></i></span></td></tr>';
+    }).join("");
+
+    var ligs = (r.ligands || []).map(function (l) {
+      return '<span class="dchip mono">' + esc(l[0]) + ' <span class="n">' + l[1] +
+        "</span></span>";
+    }).join(" ");
+
+    var conservation = null;
+    ((S.family.msa || {}).columns || []).forEach(function (col) {
+      if (col.pos === pos) conservation = col.conservation;
+    });
+
+    var body = dl([
+      ["Residue", (r.restype || "") + pos + " in seed coordinates"],
+      ["Total contacts", commas(r.contacts)],
+      ["Seen in", commas(r.entries) + " entries"],
+      ["Conservation", conservation != null
+        ? Math.round(conservation * 100) + "% across the family" : null],
+    ]) +
+    (bars
+      ? '<div class="dsect"><h4>By interaction type</h4><table class="ctable"><thead><tr>' +
+        "<th>Type</th><th>Contacts</th><th>Share</th><th>&nbsp;</th></tr></thead><tbody>" +
+        bars + "</tbody></table><p class=\"caveat\">PLIP's own classification, counted " +
+        "across every ligand-bound entry in the family rather than one complex.</p></div>"
+      : '<p class="caveat">This artefact predates the per-residue breakdown. Rebuild the ' +
+        "family's contacts to see it.</p>") +
+    (ligs ? '<div class="dsect"><h4>What it contacts</h4><p>' + ligs + "</p></div>" : "");
+
+    openDetail((r.restype || "Residue") + pos, "hot residue", body);
+  }
+
+  /** A definition list, which is what most of these details are. */
+  function dl(rows) {
+    var body = rows.filter(function (r) { return r && r[1] != null && r[1] !== ""; })
+      .map(function (r) {
+        return "<dt>" + esc(r[0]) + "</dt><dd>" + (r[2] === "html" ? r[1] : esc(r[1])) +
+               "</dd>";
+      }).join("");
+    return body ? '<dl class="ddl">' + body + "</dl>" : "";
   }
 
   // Kept in step with _NON_LIGANDS in family.py; used only to tint the card's chips.
@@ -1237,7 +1514,7 @@
     var body = rows.map(function (o) {
       var res = o.best_resolution ? Number(o.best_resolution).toFixed(2) : "\u2014";
       var cov = o.coverage_pct == null ? 0 : o.coverage_pct;
-      return "<tr>" +
+      return '<tr class="drow" data-org="' + esc(o.organism) + '">' +
         '<td class="org">' + esc(o.organism) + "</td>" +
         '<td class="n">' + commas(o.entries) + "</td>" +
         '<td class="n">' + commas(o.entities) + "</td>" +
@@ -1276,7 +1553,7 @@
       return;
     }
     var rows = comps.slice(0, 400).map(function (c) {
-      return "<tr>" +
+      return '<tr class="drow" data-comp="' + esc(c.id) + '">' +
         '<td class="dep">' + depiction(c) + "</td>" +
         '<td class="n"><a href="https://www.rcsb.org/ligand/' + esc(c.id) +
           '" target="_blank" rel="noopener noreferrer">' + esc(c.id) + "</a></td>" +
@@ -2314,7 +2591,31 @@
     $("filing").hidden = false;
   }
 
+  /* Every detail drawer opens the same way, from one delegated listener: these tables are
+     rebuilt on every filter change, so per-row handlers would have to be re-attached each
+     time and one missed rebuild would leave a dead table. */
+  function wireDetails() {
+    document.addEventListener("click", function (ev) {
+      var row = ev.target.closest && ev.target.closest(".drow, tr[data-seq], tr.hotrow");
+      if (!row) return;
+      // A link inside the row is a link: let it navigate rather than opening the drawer.
+      if (ev.target.closest("a")) return;
+      if (row.dataset.comp) return openComponentDetail(row.dataset.comp);
+      if (row.dataset.org) return openOrthologueDetail(row.dataset.org);
+      if (row.dataset.pos) return openHotResidueDetail(Number(row.dataset.pos));
+      if (row.dataset.seq) return openConstructDetail(row.dataset.seq);
+    });
+    $("detailClose").addEventListener("click", closeDetail);
+    document.addEventListener("keydown", function (ev) {
+      if (ev.key === "Escape" && !$("detailCard").hidden) closeDetail();
+    });
+    $("scrim").addEventListener("click", function () {
+      if (!$("detailCard").hidden) closeDetail();
+    });
+  }
+
   function boot() {
+    wireDetails();
     wireFilters();
     wireList();
     wireView();

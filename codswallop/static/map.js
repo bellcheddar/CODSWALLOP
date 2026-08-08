@@ -93,7 +93,28 @@
     // out past the rim at the six o'clock position, lands on top of the note.
     var NOTE_H = 62;
     var cx = w / 2, cy = (h - NOTE_H) / 2 + 4;
-    var scale = Math.min(w, h - NOTE_H) / 2 - 40;
+
+    // Fit the panel to the data rather than to the -1..1 box the coordinates are declared
+    // in. A real MDS embedding almost never fills that box: a tight family occupies a
+    // fraction of it and was drawn as a small knot in the middle of a large empty panel,
+    // with the space going to nothing. The placeholder layout does fill it, so it is
+    // unaffected, and both paths now use one rule.
+    var MARGIN = 46;                       // room for a cluster label printed past the rim
+    var availW = Math.max(40, w / 2 - MARGIN);
+    var availH = Math.max(40, (h - NOTE_H) / 2 - MARGIN);
+    // Each axis measured separately, then one isotropic scale from whichever binds. Taking
+    // min(availW, availH) against the larger extent instead is over-conservative on data
+    // that is not square: carbonic anhydrase spans 0.89 wide by 0.52 tall, and fitting the
+    // height against the width's extent left the family using 43 % of the panel.
+    var extX = 0, extY = 0;
+    map.nodes.forEach(function (n) {
+      extX = Math.max(extX, Math.abs(n.x || 0));
+      extY = Math.max(extY, Math.abs(n.y || 0));
+    });
+    // A single node, or every node stacked, has no extent to fit: fall back rather than
+    // dividing by zero and scaling to infinity.
+    var scale = Math.min(extX > 1e-6 ? availW / extX : availW,
+                         extY > 1e-6 ? availH / extY : availH);
 
     svg.setAttribute("viewBox", "0 0 " + w + " " + h);
     while (svg.firstChild) svg.removeChild(svg.firstChild);

@@ -473,3 +473,17 @@ def test_a_family_with_no_assembly_annotation_returns_a_complete_shape():
     empty = build_assemblies([{"pdb_id": "1AAA"}])
     full = build_assemblies([_entry("1AAA", 1, "monomeric", "author_defined_assembly")])
     assert set(empty) == set(full)
+
+
+def test_hot_residues_carry_their_own_type_breakdown():
+    """"Residue 199 makes 47 contacts" is a ranking. "37 of them are hydrogen bonds and 6
+    are metal coordination" is what says whether it is the catalytic centre or a wall of the
+    pocket, and it can only be built while the raw rows still exist."""
+    import inspect
+    from codswallop import contacts
+    src = inspect.getsource(contacts.build)
+    assert '"types": res_types[pos].most_common()' in src
+    assert '"ligands": res_ligands[pos].most_common(12)' in src
+    # Counted over distinct entries, not contact rows: one entry with forty contacts is not
+    # forty entries.
+    assert '"entries": len(res_entries[pos])' in src

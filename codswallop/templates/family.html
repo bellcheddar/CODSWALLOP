@@ -20,7 +20,6 @@
             aria-controls="sec-{{ s.id }}"
             {% if s.phase > 1 %}title="Lands in phase {{ s.phase }}"{% endif %}>
       <span class="label">{{ s.label }}</span>
-      <span class="pip" aria-label="Phase {{ s.phase }}">P{{ s.phase }}</span>
     </button>
     {% endfor %}
     <p class="railnote">
@@ -33,10 +32,6 @@
 
     {# ---- family header ------------------------------------------------------------ #}
     <header class="famhead">
-      <div class="stamp" aria-hidden="true">
-        <span class="word">FILED</span>
-        <span class="count" id="stampCount">&mdash;</span>
-      </div>
       <h1 id="famName">{{ display_name }}</h1>
       <div class="meta" id="famMeta"></div>
       <p class="note" id="famNote"></p>
@@ -441,6 +436,22 @@
     <button class="close" type="button" id="cardClose" aria-label="Close (Escape)">&times;</button>
   </div>
   <div class="cbody" id="cardBody"></div>
+</aside>
+
+{# The same drawer chrome as the entry index card, for every other panel that has more to
+   say about a row than fits in it: a construct, an orthologue, a chemical component, a hot
+   residue. One implementation, so the behaviour a reader learns on the map works
+   everywhere. #}
+<aside class="indexcard" id="detailCard" role="dialog" aria-modal="true"
+       aria-labelledby="detailTitle" hidden>
+  <div class="chead">
+    <div style="min-width:0">
+      <h2 id="detailTitle"></h2>
+      <div class="t" id="detailSubtitle"></div>
+    </div>
+    <button class="close" type="button" id="detailClose" aria-label="Close (Escape)">&times;</button>
+  </div>
+  <div class="cbody" id="detailBody"></div>
 </aside>
 {% endblock %}
 

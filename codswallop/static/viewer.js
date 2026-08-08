@@ -611,8 +611,61 @@
     }
   }
 
+  /**
+   * One chemical component, from the RCSB's ideal-geometry file.
+   *
+   * Ball-and-stick rather than cartoon: a cartoon of a 30-atom ligand is nothing at all.
+   * The ideal file is a few kilobytes, so this is cheap enough to open on a click, and it
+   * is the real geometry rather than a 2D depiction of it.
+   */
+  function showLigand(host, compId) {
+    host.textContent = "";
+    var note = document.createElement("p");
+    note.className = "vstatus";
+    note.textContent = "Loading the viewer\u2026";
+    host.appendChild(note);
+
+    return ensureMolstar().then(function (molstar) {
+      var mount = document.createElement("div");
+      mount.className = "vmount";
+      host.appendChild(mount);
+      return molstar.Viewer.create(mount, {
+        layoutIsExpanded: false, layoutShowControls: false, layoutShowSequence: false,
+        layoutShowLog: false, layoutShowLeftPanel: false, viewportShowExpand: true,
+        viewportShowSelectionMode: false, viewportShowAnimation: false,
+      }).then(function (viewer) {
+        var plugin = viewer.plugin;
+        var url = "https://files.rcsb.org/ligands/download/" +
+                  encodeURIComponent(compId.toUpperCase()) + "_ideal.sdf";
+        return plugin.builders.data.download({ url: url, isBinary: false },
+                                             { state: { isGhost: true } })
+          .then(function (data) { return plugin.builders.structure.parseTrajectory(data, "sdf"); })
+          .then(function (traj) { return plugin.builders.structure.createModel(traj); })
+          .then(function (model) { return plugin.builders.structure.createStructure(model); })
+          .then(function (struct) {
+            return plugin.builders.structure.representation.applyPreset(struct, "atomic-detail",
+                                                                        { showCarbons: true });
+          })
+          .then(function () {
+            note.remove();
+            applyTheme(viewer);
+            themed.push(viewer);
+            // Twice, a frame apart. The first reset runs before the representation has been
+            // laid out, so it frames an empty bounding box and the molecule ends up a
+            // speck in the middle of the viewport.
+            var fit = function () {
+              try { plugin.managers.camera.reset(); } catch (e) { /* nothing to frame */ }
+            };
+            fit();
+            requestAnimationFrame(function () { requestAnimationFrame(fit); });
+            return viewer;
+          });
+      });
+    });
+  }
+
   global.CodswallopViewer = {
     show: show, ensure: ensureMolstar, superpose: superpose, addAlphaFold: addAlphaFold,
-    focusResidue: focusResidue,
+    focusResidue: focusResidue, showLigand: showLigand,
   };
 })(window);

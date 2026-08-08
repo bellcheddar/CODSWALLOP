@@ -250,8 +250,22 @@ def build(fam: dict, max_entries: int = 60, progress=None) -> Optional[dict]:
         metal_coord[r["ligand"]][r["seed_pos"]] += 1
         metal_entries[r["ligand"]].add(r["pdb_id"])
 
+    # Per-residue breakdowns, not just a total. "Residue 199 makes 47 contacts" is a
+    # ranking; "37 of them are hydrogen bonds and 6 are metal coordination" is what tells a
+    # reader whether it is a catalytic residue or a wall of the pocket. Built here because
+    # `all_rows` exists only during the build.
+    res_types: dict = defaultdict(Counter)
+    res_ligands: dict = defaultdict(Counter)
+    res_entries: dict = defaultdict(set)
+    for r in all_rows:
+        res_types[r["seed_pos"]][r["type"]] += 1
+        res_ligands[r["seed_pos"]][r["ligand"]] += 1
+        res_entries[r["seed_pos"]].add(r["pdb_id"])
+
     hot = [{"pos": pos, "restype": restype_of.get(pos, ""), "contacts": n,
-            "entries": len({r["pdb_id"] for r in all_rows if r["seed_pos"] == pos})}
+            "entries": len(res_entries[pos]),
+            "types": res_types[pos].most_common(),
+            "ligands": res_ligands[pos].most_common(12)}
            for pos, n in per_residue.most_common(60)]
 
     top_ligands = [lig for lig, _ in Counter(r["ligand"] for r in all_rows).most_common(24)]

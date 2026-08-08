@@ -16,7 +16,8 @@ from . import config
 
 logger = logging.getLogger(__name__)
 
-VERSION = 2
+# 3: hot residues carry their own contact-type and ligand breakdowns.
+VERSION = 3
 CONTACT_DIR = config.DATA_DIR / "contacts"
 
 

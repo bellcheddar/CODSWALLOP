@@ -943,3 +943,43 @@ footer.site .sources { margin-top: 7px; }
 .topokey .k-strand { background: var(--accent); }
 .topokey .k-helix  { background: var(--violet); border-radius: 5px; }
 .topokey .k-arc    { background: none; border-bottom: 2px solid var(--cyan); height: 6px; }
+
+/* The shared detail drawer's contents. Same chrome as the entry index card, so only the
+   inner furniture is new: a definition list, section blocks, chips, and a viewport for the
+   ligand. A row that opens one says so by lifting on hover. */
+.drow, tr[data-seq], tr.hotrow { cursor: pointer; }
+.drow:hover, tr[data-seq]:hover, tr.hotrow:hover { background: var(--surface-2); }
+
+.ddl { display: grid; grid-template-columns: minmax(96px, 34%) 1fr; gap: 5px 12px; margin: 0; }
+.ddl dt {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--mute);
+  padding-top: 2px;
+}
+.ddl dd { margin: 0; font-size: 12.5px; color: var(--text); word-break: break-word; }
+.ddl dd code { font-size: 11px; color: var(--dim); }
+
+.dsect { margin-top: 18px; }
+.dsect h4 {
+  font-family: var(--display); font-size: 11px; text-transform: uppercase;
+  letter-spacing: .08em; color: var(--dim); margin: 0 0 8px;
+  padding-bottom: 5px; border-bottom: 1px solid var(--line);
+}
+.dsect h4 .n { text-transform: none; letter-spacing: 0; color: var(--mute); }
+.dsect p { margin: 0 0 6px; font-size: 12.5px; }
+.dchip {
+  display: inline-block; font-size: 11px; padding: 2px 7px; margin: 0 2px 4px 0;
+  border: 1px solid var(--line); border-radius: 4px; color: var(--dim);
+  background: var(--surface); text-decoration: none;
+}
+.dchip.mono { font-family: var(--mono); }
+.dchip.warn { border-color: var(--amber); color: var(--amber); }
+.dchip.mut  { border-color: var(--oxide); color: var(--oxide); }
+a.dchip:hover { border-color: var(--accent); color: var(--text); text-decoration: none; }
+
+/* The ligand viewport. Fixed height: the drawer scrolls, and a viewport that grows with its
+   content would push the numbers below it off the screen. */
+.dmol {
+  height: 240px; margin-bottom: 16px; border: 1px solid var(--line);
+  border-radius: var(--radius); overflow: hidden; background: var(--sky); position: relative;
+}
+.dmol .vmount { position: absolute; inset: 0; }
