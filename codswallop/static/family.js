@@ -1630,7 +1630,9 @@
   }
 
   function addAlphaFold() {
-    var acc = S.family.seed && /^[A-Z0-9]{6,10}$/i.test(S.family.seed) ? S.family.seed : null;
+    var af = (S.family.map || {}).alphafold;
+    var acc = af ? af.accession : null;
+    if (!acc) acc = S.family.seed && /^[A-Z0-9]{6,10}$/i.test(S.family.seed) ? S.family.seed : null;
     if (!acc) {
       // Fall back to the accession most members carry, since a family seeded from a PDB ID
       // has no accession of its own.
@@ -1649,9 +1651,13 @@
       return;
     }
     $("superposeNote").textContent = "Fetching the AlphaFold model for " + acc + "…";
-    window.CodswallopViewer.addAlphaFold(currentViewer, acc).then(function () {
-      $("superposeNote").textContent = "AlphaFold model for " + acc +
-        " added, coloured by pLDDT. It sits in its own frame: it is not superposed.";
+    window.CodswallopViewer.addAlphaFold(currentViewer, acc, af).then(function () {
+      $("superposeNote").textContent = af && af.u
+        ? "AlphaFold model for " + acc + " superposed on " +
+          ((S.family.map || {}).reference || "the reference") + " (TM " + af.tm +
+          "), coloured by pLDDT."
+        : "AlphaFold model for " + acc + " added, coloured by pLDDT. No alignment was " +
+          "available, so it sits in its own frame rather than superposed.";
     }).catch(function (err) {
       $("superposeNote").textContent = "No AlphaFold model for " + acc + " (" + err.message + ").";
     });

@@ -194,6 +194,76 @@ def embed(tm: np.ndarray) -> np.ndarray:
     return coords / span
 
 
+AFDB_API = "https://alphafold.ebi.ac.uk/api/prediction/{accession}"
+
+
+def alphafold_trace(accession: str) -> Optional[tuple]:
+    """Download the AlphaFold model for an accession and return its CA trace.
+
+    The file URL comes from the API, never constructed: the model version is in the filename
+    and it moves (the DB was on v4 when this was written and serves v6 now), so a built URL
+    is a 404 waiting to happen.
+    """
+    from . import http
+
+    try:
+        rows = http.get_json(AFDB_API.format(accession=accession.upper()))
+    except Exception:
+        logger.warning("AlphaFold DB lookup failed for %s", accession, exc_info=True)
+        return None
+    if not rows or not rows[0].get("cifUrl"):
+        return None
+
+    url = rows[0]["cifUrl"]
+    dest = STRUCT_DIR / f"AF-{accession.upper()}.cif"
+    if http.download(url, dest) is None:
+        return None
+    try:
+        struct = get_structure(CIFFile.read(str(dest)), model=1)
+    except Exception:
+        logger.warning("could not parse the AlphaFold model for %s", accession, exc_info=True)
+        return None
+
+    ca = struct[struct.atom_name == "CA"]
+    if ca.array_length() == 0:
+        return None
+    seq = "".join(_THREE_TO_ONE.get(r, "X") for r in ca.res_name)
+    coords = np.asarray(ca.coord, dtype=np.float64)
+    if len(seq) > MAX_RESIDUES:
+        seq, coords = seq[:MAX_RESIDUES], coords[:MAX_RESIDUES]
+    return (coords, seq, url) if len(seq) >= 20 else None
+
+
+def alphafold_transform(accession: str, reference: tuple) -> Optional[dict]:
+    """Align the AlphaFold model onto the reference structure.
+
+    This is why the overlay can be a real superposition rather than two models sitting in
+    different frames: the alignment is the same TM-align call used for everything else, and
+    it belongs in the pipeline where TM-align lives rather than in a browser that has no
+    way to do it.
+    """
+    got = alphafold_trace(accession)
+    if not got:
+        return None
+    coords, seq, url = got
+    cr, sr = reference
+    try:
+        r = tm_align(coords, cr, seq, sr)
+    except Exception:
+        logger.warning("could not align the AlphaFold model for %s", accession, exc_info=True)
+        return None
+    return {
+        "accession": accession.upper(),
+        "url": url,
+        "u": np.asarray(r.u, dtype=float).tolist(),
+        "t": np.asarray(r.t, dtype=float).tolist(),
+        # How well the prediction matches the experiment, which is worth stating on the
+        # panel: an overlay of something that does not superpose is a misleading picture.
+        "tm": round(float(max(r.tm_norm_chain1, r.tm_norm_chain2)), 3),
+        "length": len(seq),
+    }
+
+
 def build(fam: dict, max_representatives: int = MAX_REPRESENTATIVES,
           progress=None) -> Optional[dict]:
     """Compute the embedding for one assembled family and return the artefact."""
@@ -239,6 +309,16 @@ def build(fam: dict, max_representatives: int = MAX_REPRESENTATIVES,
     # other structure look wrong.
     ref = int(np.argmax(tm.sum(axis=1)))
     transforms = transforms_to_reference(traces, ref)
+
+    # The AlphaFold model, aligned onto the same reference so the viewer can superpose it
+    # like any other structure rather than dropping it in its own frame.
+    from collections import Counter as _Counter
+    accs = _Counter(m["uniprot"] for m in fam["members"] if m.get("uniprot"))
+    af = None
+    if accs:
+        if progress:
+            progress("fetch", len(chosen), len(chosen), "AlphaFold")
+        af = alphafold_transform(accs.most_common(1)[0][0], traces[ref])
     elapsed = time.time() - t0
 
     artefact = {
@@ -249,6 +329,7 @@ def build(fam: dict, max_representatives: int = MAX_REPRESENTATIVES,
         "n_pairs": len(reps) * (len(reps) - 1) // 2,
         "seconds": round(elapsed, 1),
         "reference": reps[ref]["pdb_id"],
+        "alphafold": af,
         "representatives": [
             {**r, "x": round(float(coords[i, 0]), 4), "y": round(float(coords[i, 1]), 4),
              "transform": transforms[i]}

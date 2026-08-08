@@ -15,6 +15,7 @@
 
   var loading = null;
   var themed = [];
+  var molstarRef = null;
 
   /** The page's own --sky, as the 0xRRGGBB integer Mol* wants. */
   function skyColour() {
@@ -52,7 +53,7 @@
   function ensureMolstar() {
     if (loading) return loading;
     loading = new Promise(function (resolve, reject) {
-      if (global.molstar) return resolve(global.molstar);
+      if (global.molstar) { molstarRef = global.molstar; return resolve(global.molstar); }
       var css = document.createElement("link");
       css.rel = "stylesheet";
       css.href = assetUrl("molstar.css");
@@ -61,7 +62,8 @@
       var js = document.createElement("script");
       js.src = assetUrl("molstar.js");
       js.onload = function () {
-        global.molstar ? resolve(global.molstar) : reject(new Error("Mol* did not register"));
+        molstarRef = global.molstar;
+        molstarRef ? resolve(molstarRef) : reject(new Error("Mol* did not register"));
       };
       js.onerror = function () { reject(new Error("Mol* failed to load")); };
       document.head.appendChild(js);
@@ -215,32 +217,57 @@
   /**
    * Add the AlphaFold model for `accession` to an existing viewer, coloured by pLDDT.
    *
-   * Not superposed onto the experimental structures: the AlphaFold DB model is in its own
-   * frame, and computing the transform needs an alignment this browser has no way to do.
-   * Mol* is told to reset the camera around everything, so the two sit side by side and the
-   * comparison is honest about being a comparison rather than an overlay.
+   * Superposed when the pipeline supplied a transform. The alignment is done where TM-align
+   * lives, in embed.py, against the same reference every experimental structure was put on,
+   * so the model lands in the same frame as everything else. Without a transform (an older
+   * artefact, or an accession the AFDB has no model for) it is still shown, unaligned, and
+   * the caller says so rather than presenting two frames as an overlay.
    */
-  function addAlphaFold(viewer, accession) {
+  function addAlphaFold(viewer, accession, af) {
     var plugin = viewer.plugin;
     // Ask the API for the file URL rather than constructing it. The model version is in the
     // filename and it moves: this was written against `-model_v4.cif` and the DB is already
     // serving v6, so every constructed URL would have 404'd.
-    return fetch("https://alphafold.ebi.ac.uk/api/prediction/" +
-                 encodeURIComponent(accession.toUpperCase()))
-      .then(function (r) {
-        if (!r.ok) throw new Error("AlphaFold DB returned " + r.status);
-        return r.json();
-      })
-      .then(function (rows) {
-        if (!rows || !rows.length || !rows[0].cifUrl) {
-          throw new Error("no model for this accession");
-        }
-        return plugin.builders.data.download({ url: rows[0].cifUrl, isBinary: false },
+    // The pipeline already resolved the file URL; only ask the API when it did not, which
+    // is the path for a family with no embedding artefact.
+    var urlPromise = (af && af.url)
+      ? Promise.resolve(af.url)
+      : fetch("https://alphafold.ebi.ac.uk/api/prediction/" +
+              encodeURIComponent(accession.toUpperCase()))
+          .then(function (r) {
+            if (!r.ok) throw new Error("AlphaFold DB returned " + r.status);
+            return r.json();
+          })
+          .then(function (rows) {
+            if (!rows || !rows.length || !rows[0].cifUrl) {
+              throw new Error("no model for this accession");
+            }
+            return rows[0].cifUrl;
+          });
+
+    var ST = molstarRef && molstarRef.lib.plugin.StateTransforms;
+
+    return urlPromise
+      .then(function (url) {
+        return plugin.builders.data.download({ url: url, isBinary: false },
                                              { state: { isGhost: true } });
       })
       .then(function (data) { return plugin.builders.structure.parseTrajectory(data, "mmcif"); })
       .then(function (traj) { return plugin.builders.structure.createModel(traj); })
       .then(function (model) { return plugin.builders.structure.createStructure(model); })
+      .then(function (struct) {
+        // Put it on the reference before drawing it, so the camera reset below frames one
+        // superposition rather than two objects a hundred angstroms apart.
+        var placed = (af && af.u && ST)
+          ? plugin.build().to(struct).apply(ST.Model.TransformStructureConformation, {
+              transform: {
+                name: "matrix",
+                params: { data: mat4(af.u, af.t), transpose: false },
+              },
+            }).commit()
+          : Promise.resolve();
+        return placed.then(function () { return struct; });
+      })
       .then(function (struct) {
         // "plddt-confidence" is Mol*'s own AlphaFold theme; it reads the B-factor column,
         // which is where the AFDB stores pLDDT.
