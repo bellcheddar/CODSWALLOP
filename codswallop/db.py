@@ -457,11 +457,30 @@ def request_artefact(slug: str, query: str, kind: str,
 
 
 def open_requests(limit: int = 50) -> list[dict]:
-    """Unserved artefact requests, most-wanted first."""
+    """Unserved artefact requests, most-wanted first.
+
+    A request whose artefact has since arrived is not open, however it arrived. The queue is
+    cleared by `drain_queue.sh` when it builds something, but an artefact pushed from a
+    workstation that was not draining the queue leaves the row behind: four families sat in
+    the queue asking for contacts they already had.
+    """
+    from . import artefacts
     rows = connect().execute(
         "SELECT * FROM artefact_request WHERE served_at IS NULL "
-        "ORDER BY hits DESC, last_seen DESC LIMIT ?", (limit,)).fetchall()
-    return [dict(r) for r in rows]
+        "ORDER BY hits DESC, last_seen DESC LIMIT ?", (limit * 3,)).fetchall()
+    out = []
+    for r in rows:
+        st = artefacts.status(r["slug"])
+        want = r["kind"]
+        still = ((want in ("embedding", "both") and not st["embedding"]["current"]) or
+                 (want in ("contacts", "both") and not st["contacts"]["current"]))
+        if still:
+            out.append(dict(r))
+        else:
+            mark_request_served(r["slug"])
+        if len(out) >= limit:
+            break
+    return out
 
 
 def mark_request_served(slug: str) -> None:

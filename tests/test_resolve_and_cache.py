@@ -148,3 +148,25 @@ def test_a_family_built_by_an_older_parser_is_not_fresh(tmp_path, monkeypatch):
     monkeypatch.setattr(rcsb, "PARSE_VERSION", rcsb.PARSE_VERSION + 1)
     assert db.family_fresh("x") is False, \
         "a family built by an older parser is stale however recently it was written"
+
+
+def test_a_request_whose_artefact_arrived_is_no_longer_open(tmp_path, monkeypatch):
+    """The queue is cleared by drain_queue.sh when it builds something, but an artefact
+    pushed from a workstation that was not draining the queue left the row behind: four
+    families sat in the queue asking for contacts they already had."""
+    from codswallop import artefacts, config, db
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "q3.db")
+    monkeypatch.setattr(db._local, "conn", None, raising=False)
+    db.init()
+    db.request_artefact("abl1", "P00519", "contacts", "ABL1", 2000)
+    assert [r["slug"] for r in db.open_requests()] == ["abl1"]
+
+    # The artefact turns up by some other route.
+    monkeypatch.setattr(artefacts, "status", lambda slug: {
+        "embedding": {"current": True}, "contacts": {"current": True},
+        "topology": {"current": True}})
+    assert db.open_requests() == []
+    # And it is marked served, so the next call does not have to work it out again.
+    row = db.connect().execute(
+        "SELECT served_at FROM artefact_request WHERE slug='abl1'").fetchone()
+    assert row["served_at"] is not None
