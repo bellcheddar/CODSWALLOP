@@ -1508,8 +1508,72 @@
      PROSITE hit is a pattern having matched a string. The family columns are what make this
      worth a panel at all, because a site nobody has ever cloned and a site fifty structures
      resolve look identical on any single entry's page. */
+  /* Family-specific reference numbering, when the family is a kinase or a receptor. The
+     point of both is a vocabulary that means the same thing in every member: "the DFG" and
+     "3.50" travel across the family where Thr315 and Arg131 belong to one structure each. */
+  function renderPocket() {
+    var host = $("pocketBlock");
+    if (!host) return;
+    var p = S.family.pocket || { kind: null };
+    if (!p.kind) { host.innerHTML = ""; return; }
+
+    if (p.kind === "kinase") {
+      var c = p.conformations || { n: 0, dfg: [], achelix: [] };
+      if (!c.n) {
+        host.innerHTML = '<div class="csect"><h3>Kinase pocket</h3><p class="caveat">' +
+          esc(p.kinase.full_name) + " is a " + esc(p.kinase.group) + " kinase (" +
+          esc(p.kinase.family) + " family) in KLIFS, but none of this family's entries are " +
+          "in its structure set.</p></div>";
+        return;
+      }
+      function bars(rows) {
+        return rows.map(function (r) {
+          return '<span class="conf"><b>' + esc(r.state) + "</b> " + r.pct + "% " +
+            '<span class="n">' + r.n + "</span></span>";
+        }).join(" ");
+      }
+      host.innerHTML =
+        '<div class="csect"><h3>Kinase pocket <span class="n">KLIFS</span></h3>' +
+        '<p class="caveat">' + esc(p.kinase.full_name) + " is a <b>" + esc(p.kinase.group) +
+        "</b> kinase of the <b>" + esc(p.kinase.family) + "</b> family. " + commas(c.n) +
+        " of this family's entries are in KLIFS, and this is the conformation each was " +
+        "caught in. A single entry's page can tell you it is DFG-out; only the family can " +
+        "tell you what fraction of the field that is.</p>" +
+        '<p class="confrow"><span class="cflabel">DFG</span>' + bars(c.dfg) + "</p>" +
+        '<p class="confrow"><span class="cflabel">&alpha;C-helix</span>' + bars(c.achelix) +
+        "</p></div>";
+      return;
+    }
+
+    if (p.kind === "gpcr") {
+      host.innerHTML =
+        '<div class="csect"><h3>Receptor micro-switches <span class="n">GPCRdb</span></h3>' +
+        '<p class="caveat">' + esc(p.receptor.name) + ", numbered in <b>" +
+        esc(p.receptor.scheme) + "</b>: " + commas(p.n_numbered) + " residues of the seed " +
+        "carry a generic number, so a position here means the same thing in every receptor " +
+        "of the class. Positions below are in seed coordinates, the same axis as the " +
+        "conservation track and the coverage census.</p>" +
+        '<div class="tablewrap"><table class="ctable"><thead><tr><th>Switch</th>' +
+        "<th>Generic</th><th>Seed</th><th>Sequence</th><th>What it does</th></tr></thead>" +
+        "<tbody>" +
+        (p.switches || []).map(function (s) {
+          return "<tr><td><b>" + esc(s.name) + "</b></td>" +
+            '<td class="n">' + esc(s.generic) + "</td>" +
+            '<td class="n">' + s.start + (s.end !== s.start ? "&ndash;" + s.end : "") + "</td>" +
+            '<td class="n">' + esc(s.sequence) + "</td>" +
+            "<td>" + esc(s.why) + "</td></tr>";
+        }).join("") + "</tbody></table></div>" +
+        '<p class="caveat">Segments: ' +
+        (p.segments || []).map(function (g) {
+          return '<span class="tagseg">' + esc(g.name) + " " + g.start +
+            (g.end !== g.start ? "&ndash;" + g.end : "") + "</span>";
+        }).join(" ") + "</p></div>";
+    }
+  }
+
   function renderMotifs() {
-    var m = S.family.motifs || { n: 0, rows: [] };
+    renderPocket();                 // before the early return: a kinase with no UniProt
+    var m = S.family.motifs || { n: 0, rows: [] };   // features still has a pocket
     if (!m.n) {
       $("motifSub").textContent = "no annotated sites for this family";
       $("motifIntro").innerHTML = "";

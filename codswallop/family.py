@@ -193,6 +193,9 @@ def decorate(fam: dict) -> dict:
     # family rather than being grounded in it, which is the whole point of the panel.
     fam["motifs"] = _optional("motifs", lambda: build_motifs(fam),
                               {"n": 0, "rows": [], "n_curated": 0, "n_predicted": 0})
+    # KLIFS or GPCRdb, when the family is one of theirs. Separate from the motifs build so a
+    # kinase whose reference numbering is unavailable still gets its sequence sites.
+    fam["pocket"] = _optional("pocket", lambda: _build_pocket(fam), {"kind": None})
     fam["assemblies"] = _optional("assemblies", lambda: build_assemblies(fam["entries"]),
                                   {"n": 0, "states": [], "provenance": {}, "ambiguous": [],
                                    "n_ambiguous": 0, "interfaces": None})
@@ -769,6 +772,11 @@ def build_domains(fam: dict, members: list[dict]) -> dict:
     sources = sorted({d["source"] for d in out})
     return {"sources": sources, "domains": out, "support": support,
             "dropped": dropped}
+
+
+def _build_pocket(fam: dict) -> dict:
+    from . import pockets
+    return pockets.build(fam)
 
 
 def build_motifs(fam: dict) -> dict:

@@ -911,3 +911,14 @@ footer.site .sources { margin-top: 7px; }
    built around saying so, which means the distinction has to survive being skim-read. */
 .ctable .badge.cur  { border-color: var(--mint); color: var(--mint); }
 .ctable .badge.pred { border-color: var(--violet); color: var(--violet); }
+
+/* Kinase conformation distribution and GPCR segment chips. */
+.confrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; margin: 6px 0; }
+.cflabel { font-size: 10px; text-transform: uppercase; letter-spacing: .08em;
+           color: var(--mute); min-width: 62px; }
+.conf { font-size: 12px; color: var(--dim); border: 1px solid var(--line);
+        border-radius: 4px; padding: 3px 8px; background: var(--surface); }
+.conf b { color: var(--accent); font-family: var(--mono); }
+.tagseg { font-family: var(--mono); font-size: 10.5px; color: var(--mute);
+          border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px;
+          white-space: nowrap; }

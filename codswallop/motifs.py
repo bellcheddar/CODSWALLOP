@@ -24,6 +24,7 @@ entry's page.
 from __future__ import annotations
 
 import logging
+import re
 import urllib.parse
 from typing import Optional
 
@@ -55,6 +56,24 @@ FEATURE_LABELS = [
 # Single-residue feature kinds: `uniprot._features_from` expands these to bare positions
 # rather than to spans, so they need reading differently.
 POSITION_KINDS = {"active_site", "binding_site"}
+
+
+def tidy(description: str, label: str) -> str:
+    """UniProt descriptions are database strings, not prose.
+
+    A transmembrane helix arrives as `Helical; Name=1`, which is how the flat file encodes a
+    numbered helix and is not something to put in front of a reader. Nothing is invented
+    here: the number is kept, the encoding is dropped.
+    """
+    d = (description or "").strip()
+    if not d:
+        return label
+    m = re.match(r"^Helical;\s*Name=(.+)$", d, re.I)
+    if m:
+        return f"{label} helix {m.group(1).strip()}"
+    if d.lower().startswith("helical"):
+        return f"{label} helix"
+    return d
 
 
 def scan_prosite(sequence: str, include_frequent: bool = False) -> list[dict]:
@@ -182,9 +201,8 @@ def build(fam: dict, features: Optional[dict] = None) -> dict:
                             g[fld] = round(min(g[fld], gb[fld]), 1)
                     g["residues"] = 2
                 rows.append({"source": "UniProt", "standing": standing, "kind": label,
-                             "name": (f.get("description")
-                                      or (f"{label} {a}\u2013{b}" if key == "disulphide"
-                                          else label)),
+                             "name": (f"{label} {a}\u2013{b}" if key == "disulphide"
+                                      else tidy(f.get("description"), label)),
                              "start": a, "end": b,
                              "description": f.get("description") or "", **g})
 
