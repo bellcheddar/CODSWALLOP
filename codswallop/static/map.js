@@ -104,7 +104,7 @@
       if (!g) return;
       var p = project(n);
       g.setAttribute("transform", "translate(" + p.x.toFixed(2) + "," + p.y.toFixed(2) + ")");
-      if (n.z != null) g.style.opacity = depthOpacity(p.z);
+      if (n.z != null) g.style.setProperty("--depth", depthOpacity(p.z));
     });
     // The edges are between representatives and have to follow the same rotation, or they
     // detach from the nodes they connect.
@@ -260,7 +260,11 @@
       // Depth. Without it a rotation is only a reshuffle: nothing tells the eye which of
       // two overlapping nodes is in front. Opacity rather than size, because size already
       // means resolution here and must go on meaning only that.
-      if (n.z != null) g.style.opacity = depthOpacity(p3.z);
+      //
+      // Through a custom property, never `style.opacity`. An inline opacity beats the
+      // `.node.dim` class rule, so writing it directly silently disabled the filters: the
+      // entity count changed and the map did not, which reads as the toggles being broken.
+      if (n.z != null) g.style.setProperty("--depth", depthOpacity(p3.z));
 
       // The pulse ring: invisible until the cross-highlight fires.
       g.appendChild(el("circle", { "class": "pulse", r: r }));

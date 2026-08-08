@@ -22,3 +22,17 @@ def test_kabsch_recovers_a_known_rotation():
         capture_output=True, text=True, timeout=60,
     )
     assert r.returncode == 0, r.stderr or r.stdout
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_depth_does_not_override_the_dim_class():
+    """Written as an inline opacity, the depth cue beat `.node.dim` and silently disabled
+    every filter on the map: the entity count changed and nothing on the map did, which
+    reads as the toggles being broken rather than as a styling fault."""
+    r = subprocess.run(
+        ["node", str(ROOT / "tests" / "js" / "depth_check.js"),
+         str(ROOT / "codswallop" / "static" / "map.js"),
+         str(ROOT / "codswallop" / "static" / "theme.css")],
+        capture_output=True, text=True, timeout=60,
+    )
+    assert r.returncode == 0, r.stderr or r.stdout

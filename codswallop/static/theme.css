@@ -438,6 +438,10 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .node { cursor: pointer; }
 .node circle.body { transition: fill-opacity 140ms, stroke 140ms; }
 .node circle.halo { fill: none; stroke: var(--amber); stroke-opacity: .5; }
+/* Depth comes in as a custom property so that dimming, which is a class, still wins. Set
+   as an inline opacity it beat `.node.dim` outright and the filters stopped showing on the
+   map even though they were still filtering. */
+.node { opacity: var(--depth, 1); }
 .node.dim { opacity: .13; }
 .node.hot circle.body { stroke: var(--brass); stroke-width: 2.4; }
 .edge { stroke: var(--line); stroke-width: .7; fill: none; }
