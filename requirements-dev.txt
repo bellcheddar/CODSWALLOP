@@ -6,5 +6,7 @@
 
 tmtools>=0.3            # TM-align bindings: the pairwise structural similarity matrix
 biotite>=1.0            # mmCIF parsing, alpha-carbon extraction
-numpy>=1.24             # classical MDS (eigendecomposition), no scipy needed
+numpy>=1.24             # classical MDS (eigendecomposition), no scipy needed.
+                        # Already on the droplet via biopython; pinned here so the
+                        # pipeline states its own requirement rather than relying on that.
 pytest>=8.0             # the test suite

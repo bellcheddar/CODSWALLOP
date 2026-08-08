@@ -3,8 +3,9 @@
 **This module runs on a workstation, never on the droplet.** It downloads mmCIF files and
 does real numerical work, and the droplet has two cores shared with eight apps and 19 GB
 free. The web app never imports it: it reads the JSON artefact this writes, and falls back
-to the sequence-identity placeholder when there is none. `tmtools`, `numpy` and `biotite`
-are therefore in requirements-dev.txt, not requirements.txt.
+to the sequence-identity placeholder when there is none. `tmtools` and `biotite` are
+therefore in requirements-dev.txt, not requirements.txt. (numpy is on the droplet either
+way, as a biopython dependency; it is the mmCIF parsing and TM-align that are not.)
 
 Two decisions worth stating, because both bound the cost:
 
@@ -139,7 +140,7 @@ def embed(tm: np.ndarray) -> np.ndarray:
 
     Classical MDS by eigendecomposition rather than a scipy or sklearn dependency: the
     matrix is a few hundred square, this is twenty lines, and it keeps the pipeline's
-    dependency list to three packages.
+    dependency list short.
     """
     n = tm.shape[0]
     if n < 3:

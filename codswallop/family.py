@@ -235,7 +235,7 @@ def decorate(fam: dict) -> dict:
     floor = min(identities) if identities else config.IDENTITY_MIN
     # The structural embedding when a workstation has computed one for this family, the
     # sequence-identity placeholder when it has not. Read through embed_io, which imports
-    # nothing heavy, so the droplet never needs numpy, biotite or tmtools.
+    # nothing beyond the standard library, so the droplet never needs biotite or tmtools.
     fam["map"] = layout.compute(members, min(floor, config.IDENTITY_MAX - 1),
                                 embedding=_embedding_for(fam["slug"]))
 
