@@ -17,7 +17,9 @@ from . import config
 
 logger = logging.getLogger(__name__)
 
-VERSION = 5
+# 6: the superposition reference and the AlphaFold accession come from the family's seed
+# rather than from a majority vote among its members, which the subject was losing.
+VERSION = 6
 EMBED_DIR = config.DATA_DIR / "embeddings"
 
 

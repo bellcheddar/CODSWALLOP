@@ -285,6 +285,42 @@ def alphafold_transform(accession: str, reference: tuple,
     }
 
 
+def choose_representatives(constructs: list, seed_acc: str, budget: int) -> list:
+    """Which constructs get a node on the map, half of them reserved for the subject.
+
+    Ranking purely by how many entities use a construct hands the map to whichever member of
+    the superfamily has been deposited most. Of the 80 representatives an ABL1 search
+    produced, two were ABL1, and both of those were its 63-residue SH3 domain: the reader
+    asked about ABL1 and got a map of EGFR, superposed onto an EGFR structure. Reserving half
+    the budget keeps the family context the app exists to show while guaranteeing the subject
+    is on its own map, and in enough copies to anchor the frame.
+
+    Families whose seed is already dominant are unaffected: the reserved half fills with the
+    same constructs the open half would have taken.
+    """
+    ranked = sorted(range(len(constructs)), key=lambda i: -constructs[i]["n_entities"])
+    mine = lambda i: (constructs[i].get("uniprot") or "").upper() == seed_acc   # noqa: E731
+    own = [i for i in ranked if mine(i)]
+    if not seed_acc or not own:
+        return [constructs[i] for i in ranked[:budget]]
+
+    # Usage still ranks the map. The quota only swaps the subject in when usage alone would
+    # have left it under-represented, so a family whose seed is dominant keeps exactly the
+    # nodes it had: partitioning the budget instead of topping it up displaced a construct
+    # used by 92 entities with one used by a single entity.
+    chosen = ranked[:budget]
+    quota = min(len(own), max(1, budget // 2))
+    have = [i for i in chosen if mine(i)]
+    need = quota - len(have)
+    if need > 0:
+        seen = set(chosen)
+        extras = [i for i in own if i not in seen][:need]
+        others = [i for i in chosen if not mine(i)]
+        drop = set(others[len(others) - len(extras):])
+        chosen = [i for i in chosen if i not in drop] + extras
+    return [constructs[i] for i in sorted(chosen, key=lambda i: -constructs[i]["n_entities"])]
+
+
 def reference_index(reps: list, centrality, seed_acc: str) -> int:
     """Which representative everything else is superposed onto.
 
@@ -312,7 +348,8 @@ def build(fam: dict, max_representatives: int = MAX_REPRESENTATIVES,
     constructs = fam.get("constructs") or []
     if not constructs:
         return None
-    chosen = sorted(constructs, key=lambda c: -c["n_entities"])[:max_representatives]
+    seed_acc = (fam.get("seed") or "").upper() if fam.get("kind") == "uniprot" else ""
+    chosen = choose_representatives(constructs, seed_acc, max_representatives)
 
     by_pdb = {}
     for m in fam["members"]:
@@ -348,12 +385,6 @@ def build(fam: dict, max_representatives: int = MAX_REPRESENTATIVES,
     # not simply the best-resolution one. Superposing a family onto an outlier makes every
     # other structure look wrong.
     #
-    # Restricted to the protein the reader actually asked for, when the family knows which
-    # that is. Families are assembled at 30% identity, so a search for ABL1 legitimately
-    # returns most of the tyrosine kinases, and the most *central* structure in that
-    # superfamily was an EGFR entry (4L7S): the page then superposed ABL1's family onto a
-    # different protein. Centrality is still what picks between the seed's own structures.
-    seed_acc = (fam.get("seed") or "").upper() if fam.get("kind") == "uniprot" else ""
     ref = reference_index(reps, tm.sum(axis=1), seed_acc)
     transforms = transforms_to_reference(traces, ref)
 

@@ -358,3 +358,30 @@ def test_reference_falls_back_to_centrality_when_the_seed_is_not_an_accession():
     assert reference_index(reps, [3.0, 7.0], "") == 1
     # A UniProt seed with no structure of its own among the representatives must not crash.
     assert reference_index(reps, [3.0, 7.0], "Q99999") == 1
+
+
+def test_representatives_reserve_half_the_map_for_the_subject():
+    from codswallop.embed import choose_representatives
+    # A superfamily where the subject is heavily outnumbered, as ABL1 is by EGFR.
+    cs = ([{"uniprot": "P00533", "n_entities": 100 - i} for i in range(50)] +
+          [{"uniprot": "P00519", "n_entities": 5 - (i % 5)} for i in range(20)])
+    got = choose_representatives(cs, "P00519", 10)
+    assert len(got) == 10
+    assert sum(1 for c in got if c["uniprot"] == "P00519") == 5, \
+        "the protein the reader searched for must be on its own map"
+
+
+def test_a_dominant_seed_keeps_every_slot_it_would_have_had():
+    from codswallop.embed import choose_representatives
+    cs = ([{"uniprot": "P00698", "n_entities": 100 - i} for i in range(20)] +
+          [{"uniprot": "P00720", "n_entities": 1}])
+    got = choose_representatives(cs, "P00698", 10)
+    assert [c["uniprot"] for c in got] == ["P00698"] * 10
+    assert [c["n_entities"] for c in got] == list(range(100, 90, -1))
+
+
+def test_representatives_fall_back_when_the_seed_has_no_constructs():
+    from codswallop.embed import choose_representatives
+    cs = [{"uniprot": "P00533", "n_entities": 9}, {"uniprot": "P00533", "n_entities": 4}]
+    assert len(choose_representatives(cs, "Q99999", 5)) == 2
+    assert len(choose_representatives(cs, "", 5)) == 2
