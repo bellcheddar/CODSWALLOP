@@ -229,6 +229,15 @@ def _warm_artefacts(args) -> bool:
 
     from codswallop import embed, family, resolve
 
+    every_ok = _rebuild_embeddings(artefacts, args)
+    if args.contacts:
+        every_ok = _rebuild_contacts(artefacts, args) and every_ok
+    return every_ok
+
+
+def _rebuild_embeddings(artefacts, args) -> bool:
+    from codswallop import embed, family, resolve
+
     todo = artefacts.stale("embedding")
     if not todo:
         return True
@@ -254,6 +263,46 @@ def _warm_artefacts(args) -> bool:
             print(f"  embed {s['slug']:<44} {art['n_representatives']:>3} reps"
                   + (f", AF TM {af['tm']}" if af else ", no AF model")
                   + f"  {time.time() - t0:>5.0f}s", flush=True)
+        except Exception as exc:
+            print(f"  FAIL  {s['slug']}: {exc}", flush=True)
+            every_ok = False
+    return every_ok
+
+
+def _rebuild_contacts(artefacts, args) -> bool:
+    """PLIP for any family whose fingerprint is missing or stale.
+
+    Opt-in (`--contacts`) rather than automatic, unlike the embeddings. PLIP is minutes per
+    family where an embedding is seconds-to-minutes, and a weekly run that quietly grew to
+    an hour is a weekly run somebody turns off. The report still names what is missing
+    either way.
+    """
+    from codswallop import contacts as contact_engine, family, resolve
+
+    todo = artefacts.stale("contacts")
+    if not todo:
+        return True
+    print(f"\n{len(todo)} contact profile(s) missing or out of date "
+          f"(pipeline v{artefacts.contacts_io.VERSION}); rebuilding:")
+    every_ok = True
+    for s in todo:
+        if not s["query"]:
+            print(f"  skip  {s['slug']}: no stored query to rebuild from", flush=True)
+            continue
+        t0 = time.time()
+        try:
+            r = resolve.resolve(s["query"])
+            if r["status"] != "resolved":
+                print(f"  skip  {s['slug']}: {r.get('message') or 'ambiguous'}", flush=True)
+                continue
+            fam = family.get_or_build(r["seed"], s["query"])
+            art = contact_engine.build(fam, max_entries=args.max_contacts)
+            if not art:
+                print(f"  skip  {s['slug']}: nothing ligand-bound to profile", flush=True)
+                continue
+            print(f"  plip  {s['slug']:<44} {art['n_contacts']:>6,} contacts from "
+                  f"{art['entries_analysed']:>3} entries  {time.time() - t0:>5.0f}s",
+                  flush=True)
         except Exception as exc:
             print(f"  FAIL  {s['slug']}: {exc}", flush=True)
             every_ok = False
@@ -326,6 +375,11 @@ def main(argv=None) -> int:
                     help="skip rebuilding stale embeddings (report only)")
     sp.add_argument("--max-reps", type=int, default=80,
                     help="cap on representatives when rebuilding an embedding")
+    sp.add_argument("--contacts", action="store_true",
+                    help="also run PLIP for families whose fingerprint is missing "
+                         "(minutes per family; off by default)")
+    sp.add_argument("--max-contacts", type=int, default=40,
+                    help="cap on entries per PLIP run")
     sp.set_defaults(fn=cmd_warm)
 
     sub.add_parser("stats", help="cache statistics").set_defaults(fn=cmd_stats)
