@@ -611,6 +611,79 @@
     }
   }
 
+  /* Camera distance as a multiple of the scene's own radius.
+     Mol*'s framing, whether through camera.reset, requestCameraReset or the toolbar's own
+     "fit the visible scene into view", sits at about 2.4 radii. That is right for a protein,
+     which needs room for labels and for the reader to orbit without the edges biting, and
+     wrong for a fifteen-atom ligand in a 240 px drawer, where it left the molecule occupying
+     a tenth of the panel.
+     Set from the radius rather than as a fraction of wherever the camera currently is, so
+     that applying it twice does nothing the second time. As a fraction it compounded: this
+     runs on load, on two animation frames, after the drawer's transition and on every
+     resize, so 0.6 became 0.6 cubed and a large ligand was clipped on all four sides while a
+     small one looked right. */
+  var LIGAND_RADII = 1.45;
+
+  /** Resize the canvas to its element, then frame the scene in it. In that order. */
+  function fitViewer(viewer, zoom) {
+    if (!viewer) return;
+    try {
+      // Mol* exposes the resize differently across builds; whichever exists is the one
+      // that makes the canvas agree with its container. This has to happen before the
+      // camera is placed, or the projection is computed against a canvas of the wrong size
+      // and the molecule sits off to one side of it.
+      if (typeof viewer.handleResize === "function") viewer.handleResize();
+      else if (viewer.plugin.canvas3d && viewer.plugin.canvas3d.handleResize) {
+        viewer.plugin.canvas3d.handleResize();
+      }
+    } catch (e) { /* a build without it: the framing below is still worth doing */ }
+
+    var c3 = viewer.plugin.canvas3d;
+    // `managers.camera.reset()` restores the camera Mol* stored as its default, which is
+    // computed when the scene is created and therefore before the molecule is in it: it
+    // centres nothing. Reframing has to come from the scene's current bounds.
+    try {
+      if (c3 && typeof c3.requestCameraReset === "function") {
+        c3.requestCameraReset({ moveToCenter: true });
+      } else {
+        viewer.plugin.managers.camera.reset();
+      }
+    } catch (e) { /* nothing to frame yet */ }
+
+    if (!zoom) return;
+    // A frame later, so the reset above has actually been applied: it goes through the
+    // render loop rather than taking effect on the spot.
+    requestAnimationFrame(function () {
+      try {
+        var cam = c3.camera, st = cam.state;
+        var sphere = c3.boundingSphereVisible || c3.boundingSphere;
+        if (!sphere || !(sphere.radius > 0)) return;
+        var dx = st.position[0] - st.target[0];
+        var dy = st.position[1] - st.target[1];
+        var dz = st.position[2] - st.target[2];
+        var now = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (!(now > 1e-6)) return;
+        // Along the direction the camera is already looking from, at an absolute distance.
+        var want = sphere.radius * zoom, k = want / now;
+        cam.setState({
+          position: [st.target[0] + dx * k, st.target[1] + dy * k, st.target[2] + dz * k],
+        });
+      } catch (e) { /* leave Mol*'s own framing */ }
+    });
+  }
+
+  function c3set(viewer, props) { viewer.plugin.canvas3d.setProps(props); }
+
+  /** Re-fit whenever the mount changes size, until it is taken off the page. */
+  function watchSize(mount, onChange) {
+    if (typeof ResizeObserver !== "function") return;
+    var ro = new ResizeObserver(function () {
+      if (!mount.isConnected) { ro.disconnect(); return; }
+      onChange();
+    });
+    ro.observe(mount);
+  }
+
   /**
    * One chemical component, from the RCSB's ideal-geometry file.
    *
@@ -650,14 +723,26 @@
             note.remove();
             applyTheme(viewer);
             themed.push(viewer);
-            // Twice, a frame apart. The first reset runs before the representation has been
-            // laid out, so it frames an empty bounding box and the molecule ends up a
-            // speck in the middle of the viewport.
-            var fit = function () {
-              try { plugin.managers.camera.reset(); } catch (e) { /* nothing to frame */ }
-            };
-            fit();
-            requestAnimationFrame(function () { requestAnimationFrame(fit); });
+            // Resize BEFORE reframing, and keep doing both while the panel is still
+            // moving. `camera.reset()` frames the scene against the canvas as Mol* last
+            // measured it, and the drawer this sits in slides in over 320 ms: measured at
+            // the wrong moment the projection never matches the final canvas, so the
+            // molecule sits off to one side and hangs over the edge. Resetting the camera
+            // alone does not fix it, because the camera was never the thing that was wrong.
+            // The axes gizmo is Mol*'s orientation aid for a protein. On a ligand card it
+            // is a coloured artefact in the corner of a picture of one molecule.
+            try {
+              c3set(viewer, { camera: { helper: { axes: { name: "off", params: {} } } } });
+            } catch (e) { /* a build that names it differently: leave it */ }
+            fitViewer(viewer, LIGAND_RADII);
+            requestAnimationFrame(function () { requestAnimationFrame(function () {
+              fitViewer(viewer, LIGAND_RADII);
+            }); });
+            // After the drawer transition has finished, whatever its duration turned out
+            // to be, and again on any later resize: expanding the viewport or rotating a
+            // phone otherwise leaves the same mismatch.
+            setTimeout(function () { fitViewer(viewer, LIGAND_RADII); }, 380);
+            watchSize(mount, function () { fitViewer(viewer, LIGAND_RADII); });
             return viewer;
           });
       });
