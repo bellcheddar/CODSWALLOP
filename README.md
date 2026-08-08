@@ -77,7 +77,7 @@ Phases 2 to 4 add the RCSB 1D Coordinates, Alignment and file services, the PDBe
 ./.venv/bin/python -m pytest
 ```
 
-56 tests, none of which touch the network. They are written against the bugs that actually shipped rather than for coverage: a fusion partner being shredded by the aligner, a chimera diffed against the wrong reference, `Bis-Tris` being tallied as `Tris`, a saturating "never" statistic, a cached `None` being refetched forever, and a beacon that no page requested.
+59 tests, none of which touch the network. They are written against the bugs that actually shipped rather than for coverage: a fusion partner being shredded by the aligner, a chimera diffed against the wrong reference, `Bis-Tris` being tallied as `Tris`, a saturating "never" statistic, a cached `None` being refetched forever, and a beacon that no page requested.
 
 ## 🔧 Installation
 
@@ -214,14 +214,14 @@ Roadmap for CODSWALLOP, in dependency order: each phase is independently shippab
 ### Phase 2: sequence, construct and domain intelligence
 
 - [x] **Fetch the UniProt canonical and every deposited SEQRES.** Plus UniProt active and binding sites, used only to *describe* a mutation ("at an annotated active site"), never to claim what it did
-- [ ] **Family MSA with per-column conservation and a sequence logo.** Not built: the construct diff needs only pairwise alignment to the reference, and that is what shipped. The MSA and logo remain outstanding
+- [x] **Family alignment with per-column conservation and a sequence logo.** A star alignment against the seed rather than a progressive MSA, so a column here is the same column as in the coverage census and the domain ribbon, and no external binary is needed on the droplet. Conservation is normalised Shannon entropy weighted by how many entities used each construct. It also produces the list this panel exists for: **positions people deliberately mutate**, where the wild type still dominates but a real minority carries something else. On p53 the top of that list is M133L, V203A, N239Y and N268D, which together are the thermostabilising superstable quadruple mutant, alongside the Y220C druggable hotspot; on carbonic anhydrase II it is the active-site pocket variants
 - [x] **Construct diff engine.** The flagship, and it works: Align every SEQRES to the canonical and classify: N- and C-terminal expression tags (His6/8/10, Strep-II, FLAG, HA, Myc, Avi), cleavage sites and scar residues (TEV, 3C/PreScission, thrombin, SUMO, enterokinase), fusion partners (MBP, GST, SUMO, Trx, T4 lysozyme, BRIL, rubredoxin, PGS, GFP), truncations and internal loop deletions, point mutations sub-classified as catalytic, thermostabilising, surface entropy reduction or disulphide engineering, and non-canonical residues including SeMet
 - [x] **Replaced the phase 1 fusion heuristic**, which was wrong on every case it flagged for carbonic anhydrase II: all four were *Schistosoma* CA, a genuinely larger protein with a His6 tag, called a fusion only because it was measured against the human seed rather than its own reference
 - [x] **Construct table.** One row per unique construct, most-used first, with the entries that used it and their best resolution. On p53 the top row is residues 94-312 carrying M133L/V203A/Y220C at 1.24 Å, and R273H, R249S and R282W each get their best structure: "which construct crystallises best" answered directly
 - [x] **Domain and fold annotation.** CATH, SCOP2B and ECOD per chain from the RCSB instance features, aggregated to a consensus with median boundaries and a chain count, drawn as an architecture ribbon. A domain must appear on at least 2 chains (or 1 % of them) to be reported: without that the list filled with domains belonging to *other* proteins in the complexes, and p53 picked up "Green fluorescent protein" and "Annexin"
 - [x] **Density coverage census.** `UNOBSERVED_RESIDUE_XYZ` per chain, mapped through each member's own alignment offset onto seed coordinates, drawn as a second curve against the construct curve. "Resolved in no construct at all" turned out to be as useless a bar as the binary union (0 % for p53), so the reported figure is the *ratio*: residues resolved in under a quarter of the constructs that contained them. p53 reads 20.6 %, and names 361-393, 62-90 and 294-312; spike's 1152-1271 is resolved in 4 %; carbonic anhydrase II is 0.8 %
 - [x] **Cross-species orthologue matrix.** Organisms by entry count, with best resolution, holo count and the fraction of the seed each one's constructs cover
-- [ ] **Bind the construct table to the shared selection state.** The three new panels read the same family payload, but selecting a construct does not yet dim the other nodes on the map
+- [x] **Bound the construct table to the shared selection state.** Hovering a construct dims every node on the map that does not use it, and clicking opens the best entry that did, so a reader lands on a real structure rather than an abstraction
 
 ### Phase 3: structure, chemistry and interactions
 

@@ -127,3 +127,65 @@ def test_both_buffers_survive_when_a_condition_names_both():
     p = crystals.parse({"details": "0.1 M Bis-Tris pH 6.5 and 50 mM Tris pH 7.5",
                         "ph": 6.5, "temp_k": None})
     assert set(p["buffers"]) >= {"Bis-Tris", "Tris"}
+
+
+# ---- conservation ----------------------------------------------------------------------
+def test_conservation_finds_a_position_that_is_conserved_except_where_engineered():
+    """The cut has to be below 1.0, or it finds none of the interesting positions.
+
+    A family's functionally important residues are almost never perfectly invariant: those
+    are precisely the positions somebody made a mutant of. Carbonic anhydrase II's
+    zinc-coordinating H94 sits at 0.991 because the archive holds H94A knockouts.
+    """
+    from codswallop import msa
+    seed = "MKHAWGYGKHNGPEHWHKDFPIAKGERQSPVDIDTHTAKYDPSL"
+    # Weighted the way a real family is: the wild type is most of the archive and the
+    # knockout is a handful of entries. Carbonic anhydrase II's H94 sits at 0.991 with about
+    # 0.9 % variation, so the fixture has to be that lopsided for the threshold to mean
+    # anything: an even split of 50 to 1 is 2 % and lands below the cut.
+    seqs = {f"s{i}": seed for i in range(20)}
+    weights = {k: 60 for k in seqs}
+    seqs["mut"] = seed[:2] + "A" + seed[3:]      # one deliberate knockout at position 3
+    weights["mut"] = 8                            # ~0.7 % of the family, like a real knockout
+
+    out = msa.build(seed, seqs, weights)
+    col = out["columns"][2]
+    assert col["seed"] == "H"
+    assert msa.CONSERVED_CUT <= col["conservation"] < 1.0
+    assert 3 in out["conserved"]
+    flagged = [c["pos"] for c in out["conserved_with_exceptions"]]
+    assert 3 in flagged, "conserved-except-where-engineered is the informative list"
+
+
+def test_conservation_is_weighted_by_how_many_entities_used_each_construct():
+    from codswallop import msa
+    seed = "ACDEFGHIKLMNPQRSTVWY"
+    out = msa.build(seed, {"a": seed, "b": "W" + seed[1:]}, {"a": 99, "b": 1})
+    col = out["columns"][0]
+    assert col["top"][0]["aa"] == "A" and col["top"][0]["f"] > 0.9
+
+
+def test_deliberately_mutated_positions_get_their_own_list():
+    """The gap between "conserved" and "most variable" is where the interesting residues are.
+
+    Carbonic anhydrase II's proton-shuttle H64 scores 0.943 and p53's R273 scores 0.875:
+    below the conserved cut, but nowhere near variable enough to reach the top-40 variable
+    list. Neither list found them, and they are the two positions in those families that a
+    structural biologist would name first.
+    """
+    from codswallop import msa
+    seed = "MKHAWGYGKHNGPEHWHKDFPIAKGERQSPVDIDTHTAKYDPSL"
+    seqs = {f"wt{i}": seed for i in range(10)}
+    weights = {k: 10 for k in seqs}
+    for i, sub in enumerate("AY"):               # the classic knockout pair
+        seqs[f"m{i}"] = seed[:2] + sub + seed[3:]
+        weights[f"m{i}"] = 6
+    # A truncated construct, so the N-terminal columns are shallow the way they really are.
+    seqs["trunc"] = seed[8:]
+    weights["trunc"] = 40
+
+    out = msa.build(seed, seqs, weights)
+    hits = {x["pos"]: x for x in out["engineered"]}
+    assert 3 in hits, "a position with real minority substitution is an engineered position"
+    assert {v["aa"] for v in hits[3]["variants"]} == {"A", "Y"}
+    assert 3 not in out["conserved"], "and it is deliberately NOT in the conserved list"

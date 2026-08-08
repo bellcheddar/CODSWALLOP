@@ -777,3 +777,15 @@ footer.site .sources { margin-top: 7px; }
   border-left: 2px solid var(--line); padding-left: 10px; }
 .scatterdot { cursor: pointer; }
 .condgrid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+
+/* ---- conservation ------------------------------------------------------------------- */
+.covbar rect.cons { fill: var(--violet); }
+.covbar rect.cons.hi { fill: var(--mint); }
+.logo { display: flex; gap: 1px; align-items: flex-end; height: 34px; }
+.logo i { display: block; font-style: normal; font-family: var(--mono); font-size: 10px;
+  text-align: center; line-height: 1; }
+.aa-hydrophobic { color: var(--amber); }
+.aa-polar { color: var(--mint); }
+.aa-basic { color: var(--accent); }
+.aa-acidic { color: var(--oxide); }
+.aa-special { color: var(--violet); }

@@ -155,6 +155,25 @@
         <div class="panel-body"><div id="disorderRuns"></div></div>
       </div>
       <div class="panel">
+        <div class="panel-head">
+          <h2>Conservation</h2>
+          <span class="sub" id="consSub"></span>
+        </div>
+        <div class="covwrap">
+          <svg class="covbar tall" id="conservation" role="img"
+               aria-label="Per-residue conservation across the family"></svg>
+          <div class="covlegend" id="consLegend"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Positions people deliberately mutate</h2>
+          <span class="sub">Wild type still dominant, but a real minority carries something
+            else. Ranked by how much of the family is substituted</span>
+        </div>
+        <div class="panel-body"><div id="engineered"></div></div>
+      </div>
+      <div class="panel">
         <div class="panel-head"><h2>Seed sequence</h2>
           <span class="sub">Coloured by how often each residue is resolved</span></div>
         <div class="panel-body"><div id="seedSeq" class="seqmap"></div></div>

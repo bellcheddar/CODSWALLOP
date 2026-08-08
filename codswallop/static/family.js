@@ -21,6 +21,7 @@
     visible: new Set(),      // entity ids passing the current filters
     hot: null,               // cross-highlighted entity id
     picked: null,            // entity id open in the index card
+    construct: null,         // seq_id highlighted from the Constructs panel
     filters: {
       identity: 30,
       methods: null,         // Set of method names, or null for "all"
@@ -920,7 +921,7 @@
         badges.push('<span class="badge mut">' + c.mutation_count + " mut</span>");
       }
       var best = c.best_resolution ? Number(c.best_resolution).toFixed(2) : "\u2014";
-      return "<tr>" +
+      return '<tr data-seq="' + esc(c.seq_id) + '">' +
         '<td class="n">' + commas(c.n_entities) + "</td>" +
         '<td class="n">' + c.length + "</td>" +
         '<td class="n">' + best + "</td>" +
@@ -934,10 +935,49 @@
     }).join("");
 
     $("constructTable").innerHTML =
-      '<div class="tablewrap"><table class="ctable"><thead><tr>' +
+      '<div class="tablewrap"><table class="ctable" id="ctBody"><thead><tr>' +
       "<th>Entities</th><th>Length</th><th>Best (\u00c5)</th><th>Best entry</th>" +
       "<th>Reference</th><th>What was made</th></tr></thead><tbody>" +
       rows + "</tbody></table></div>";
+  }
+
+  /* The construct table binds to the same selection state as everything else: hovering a
+     construct dims every node on the map that does not use it. This is the rule the design
+     hangs on, and a panel that kept its own idea of what is selected would break it. */
+  function wireConstructSelection() {
+    var box = $("constructTable");
+    if (!box) return;
+    box.addEventListener("mouseover", function (ev) {
+      var tr = ev.target.closest("tr[data-seq]");
+      if (tr) setConstruct(tr.getAttribute("data-seq"));
+    });
+    box.addEventListener("mouseleave", function () { setConstruct(null); });
+    box.addEventListener("click", function (ev) {
+      var tr = ev.target.closest("tr[data-seq]");
+      if (!tr) return;
+      // Clicking opens the best entry that used this construct, so the reader lands on a
+      // real structure rather than on an abstraction.
+      var c = (S.family.constructs || []).find(function (x) {
+        return x.seq_id === tr.getAttribute("data-seq");
+      });
+      var m = c && S.members.find(function (mm) { return mm.pdb_id === c.best_pdb_id; });
+      if (m) openCard(m.entity_id);
+    });
+  }
+
+  function setConstruct(seqId) {
+    if (S.construct === seqId) return;
+    S.construct = seqId;
+    if (!constellation) return;
+    if (!seqId) {
+      constellation.applyVisible(S.visible);
+      return;
+    }
+    var only = new Set();
+    S.members.forEach(function (m) {
+      if (m.seq_id === seqId && S.visible.has(m.entity_id)) only.add(m.entity_id);
+    });
+    constellation.applyVisible(only);
   }
 
   function wireConstructFilters() {
@@ -1217,6 +1257,90 @@
     if (ex) ex.addEventListener("click", exportCrystals);
   }
 
+  /* ---- conservation, the logo, and the engineered positions ----------------------- */
+  function renderConservation() {
+    var m = S.family.msa;
+    if (!m || m.too_long || !m.columns || !m.columns.length) {
+      $("consSub").textContent = m && m.too_long
+        ? "seed too long for a per-residue view" : "not computed for this family";
+      $("conservation").innerHTML = "";
+      $("engineered").innerHTML = "";
+      return;
+    }
+    $("consSub").textContent = m.n_sequences + " distinct constructs aligned to the seed · " +
+      "mean conservation " + m.mean_conservation + " · " + m.conserved.length +
+      " positions above " + 0.97;
+
+    var W = 1000, H = 96, pad = 14, base = H - 16;
+    var cols = m.columns, n = cols.length;
+    var bw = (W - pad * 2) / n, parts = [];
+    for (var i = 0; i < n; i++) {
+      var c = cols[i];
+      if (c.conservation == null) continue;
+      var h = (base - 2) * c.conservation;
+      // Above the threshold the bar goes mint: those are the positions worth reading.
+      var cls = c.conservation >= 0.97 ? "cons hi" : "cons";
+      parts.push('<rect class="' + cls + '" x="' + (pad + i * bw).toFixed(2) + '" y="' +
+        (base - h).toFixed(2) + '" width="' + Math.max(bw, 0.6).toFixed(2) + '" height="' +
+        Math.max(h, 0).toFixed(2) + '"><title>' + c.seed + (i + 1) + ": conservation " +
+        c.conservation + ", " + (c.top[0] ? c.top[0].aa + " " +
+        Math.round(c.top[0].f * 100) + "%" : "") + "</title></rect>");
+    }
+    parts.push('<text class="covaxis" x="' + pad + '" y="' + (H - 3) + '">1</text>');
+    parts.push('<text class="covaxis" x="' + (W - pad) + '" y="' + (H - 3) +
+      '" text-anchor="end">' + n + "</text>");
+    var svg = $("conservation");
+    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    svg.setAttribute("preserveAspectRatio", "none");
+    svg.innerHTML = parts.join("");
+    $("consLegend").innerHTML =
+      '<span><i style="background:var(--mint)"></i>conserved (&ge;0.97)</span>' +
+      '<span><i style="background:var(--violet)"></i>variable</span>' +
+      "<span>Normalised Shannon entropy over the 20 residues, weighted by how many " +
+      "entities used each construct. This is what was <em>deposited</em>, not what evolved: " +
+      "a heavily engineered position reads as variable.</span>";
+
+    renderEngineered(m);
+  }
+
+  /* A sequence logo for one column: residues stacked by frequency, tallest first. */
+  function logoFor(col) {
+    if (!col || !col.top || !col.top.length) return "";
+    return '<span class="logo">' + col.top.map(function (t) {
+      var px = Math.max(6, Math.round(t.f * 30));
+      return '<i class="aa-' + esc(t.group) + '" style="font-size:' + px + "px;line-height:" +
+        px + 'px" title="' + esc(t.aa) + " " + Math.round(t.f * 100) + '%">' +
+        esc(t.aa) + "</i>";
+    }).join("") + "</span>";
+  }
+
+  function renderEngineered(m) {
+    var eng = m.engineered || [];
+    if (!eng.length) {
+      $("engineered").innerHTML = "<p style='color:var(--mute);font-size:12.5px;margin:0'>" +
+        "No position in this family carries a substantial minority substitution.</p>";
+      return;
+    }
+    var byPos = {};
+    m.columns.forEach(function (c) { byPos[c.pos] = c; });
+    var rows = eng.slice(0, 150).map(function (e) {
+      return "<tr>" +
+        '<td class="n">' + esc(e.seed) + e.pos + "</td>" +
+        '<td class="n">' + Math.round(e.substituted * 1000) / 10 + "%</td>" +
+        '<td class="n">' + (e.conservation == null ? "—" : e.conservation) + "</td>" +
+        "<td>" + e.variants.map(function (v) {
+          return '<span class="badge mut">' + esc(e.seed) + e.pos + esc(v.aa) + " " +
+            Math.round(v.f * 1000) / 10 + "%</span>";
+        }).join("") + "</td>" +
+        "<td>" + logoFor(byPos[e.pos]) + "</td>" +
+        "</tr>";
+    }).join("");
+    $("engineered").innerHTML =
+      '<div class="tablewrap"><table class="ctable"><thead><tr>' +
+      "<th>Position</th><th>Substituted</th><th>Conservation</th><th>Variants</th>" +
+      "<th>Logo</th></tr></thead><tbody>" + rows + "</tbody></table></div>";
+  }
+
   /* ==================================================================================
      11. Boot
      ================================================================================== */
@@ -1233,6 +1357,7 @@
     renderCoverage2();
     renderDisorderRuns();
     renderSeedSequence();
+    renderConservation();
     renderConstructs();
     renderDomains();
     renderOrthologues();
@@ -1277,6 +1402,7 @@
     wireView();
     wireRail();
     wireConstructFilters();
+    wireConstructSelection();
     wirePhase3();
 
     $("cardClose").addEventListener("click", closeCard);

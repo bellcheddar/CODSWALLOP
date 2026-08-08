@@ -18,7 +18,8 @@ from collections import Counter
 from typing import Optional
 
 from . import (config, constructs as construct_engine, crystals as crystal_engine, db,
-               instances, layout, ligands as ligand_engine, rcsb, uniprot)
+               instances, layout, ligands as ligand_engine, msa as msa_engine, rcsb,
+               uniprot)
 
 # How many distinct UniProt references a family will fetch canonicals for. A family is
 # dominated by a handful of accessions (carbonic anhydrase II: 1,249 of 1,490 entities are
@@ -217,6 +218,15 @@ def decorate(fam: dict) -> dict:
         lambda: build_constructs(members, fam["sequences"]),
     )
     _apply_constructs(fam, members)
+
+    # Conservation, in the seed's own coordinate frame so a column here is the same column
+    # as in the coverage census and the domain ribbon. Weighted by how many entities used
+    # each construct, and cached with the constructs because it costs the same alignments.
+    weights = {c["seq_id"]: c["n_entities"] for c in fam["constructs"]}
+    fam["msa"] = _optional("msa", lambda: db.cached(
+        ("msa", msa_engine.PARSE_VERSION, fam["slug"], sorted(fam["sequences"])),
+        lambda: msa_engine.build(fam.get("seed_sequence") or "", fam["sequences"], weights),
+    ), None)
     fam["domains"] = _optional("domains", lambda: build_domains(fam, members),
                                {"sources": [], "domains": []})
     fam["orthologues"] = _optional(
