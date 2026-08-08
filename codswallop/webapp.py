@@ -15,6 +15,7 @@ story:
 from __future__ import annotations
 
 import os
+import time
 from urllib.parse import urlencode
 
 from flask import (
@@ -142,6 +143,38 @@ def create_app() -> Flask:
 
         return render_template("family.html", slug=slug, query=q, family=fam,
                                display_name=display)
+
+    @app.route("/f/<slug>/dossier")
+    def dossier(slug):
+        """A self-contained family report: one file, no assets, prints to PDF.
+
+        Server-rendered rather than assembled in the browser, because the point of it is to
+        be a document that outlives the session it came from: something to attach to a grant
+        appendix or hand to somebody starting on a target. That means no external stylesheet,
+        no fonts, no scripts and no live requests, so it keeps working from a mailbox in five
+        years when this app is gone.
+
+        A family that is not cached is not rebuilt here. Assembly takes up to ninety seconds
+        and this URL is the kind of thing that gets fetched by a link checker.
+        """
+        if not db.family_fresh(slug):
+            return render_template(
+                "message.html", heading="Nothing filed to report on",
+                query=slug.rsplit("-", 1)[-1],
+                message="A dossier is written from a family that has already been "
+                        "assembled. Open the family first and the report will have "
+                        "something to draw on.",
+            ), 404
+        fam = family_mod.decorate(db.load_family(slug))
+        # Sorted here rather than in the template: a citation with no year is common enough
+        # in the archive, and Jinja's sort filter compares them directly, so one undated
+        # paper took the whole document down with a TypeError.
+        citations = sorted(
+            (c for c in (fam.get("citations") or {}).values() if c.get("title")),
+            key=lambda c: (c.get("year") is None, -(c.get("year") or 0)),
+        )
+        return render_template("dossier.html", fam=fam, slug=slug, citations=citations,
+                               generated=time.strftime("%d %B %Y", time.gmtime()))
 
     # ----------------------------------------------------------------------------------
     # API

@@ -69,3 +69,65 @@ def test_stats_reports_families_left_on_the_placeholder(client):
     assert art is not None
     assert "on_placeholder" in art
     assert art["embedding_version"] >= 1
+
+
+# ---- the dossier ---------------------------------------------------------------------
+# Patched at the family boundary rather than by assembling a real one: decorate() reaches
+# UniProt for the construct references, and no test here is allowed near the network. What
+# these tests are about is the document, not the assembly that feeds it.
+FAKE = {
+    "slug": "lysozyme-c-p00698", "name": "Lysozyme C", "organism": "Gallus gallus",
+    "seed": "P00698", "seed_length": 147, "seed_sequence": "KVFGRCELAA",
+    "identity_threshold": 30, "truncated": False, "total_hits": 1686,
+    "stats": {"entries": 1686, "entities": 1687, "constructs": 280, "organisms": 26,
+              "holo_entries": 330, "best_resolution": 0.65, "median_resolution": 1.73,
+              "tagged": 1, "engineered": 1606, "fusions": 0},
+    "constructs": [{"n_entities": 1239, "length": 129, "best_resolution": 0.65,
+                    "best_pdb_id": "2VB1", "summary": "residues 19-147"}],
+    "msa": {"engineered": []}, "assemblies": {"n": 0}, "domains": {"domains": []},
+    "ligands": {"components": []}, "crystals": {"n": 0, "n_parsed": 0},
+    "quality": {"n": 0}, "orthologues": [], "citations": {},
+}
+
+
+@pytest.fixture
+def dossier_client(client, monkeypatch):
+    from codswallop import db as db_mod, family as family_mod, webapp
+    monkeypatch.setattr(webapp.db, "family_fresh", lambda slug, *a, **k: slug == FAKE["slug"])
+    monkeypatch.setattr(webapp.db, "load_family", lambda slug: dict(FAKE))
+    monkeypatch.setattr(family_mod, "decorate", lambda fam: dict(FAKE))
+    return client
+
+
+def test_dossier_is_self_contained(dossier_client):
+    """The point of it is to outlive the session: something to attach to a grant appendix or
+    hand over. So it must load nothing. No script, stylesheet, font, image, or url() in the
+    CSS, or it degrades to a broken page the moment it is opened offline."""
+    r = dossier_client.get("/f/lysozyme-c-p00698/dossier")
+    assert r.status_code == 200
+    html = r.get_data(as_text=True)
+    for tag in ("<script", "<link", "<img", "<iframe", "url("):
+        assert tag not in html, f"the dossier must not pull in {tag!r}"
+    assert "@media print" in html, "a dossier that cannot become a PDF is not a dossier"
+
+
+def test_dossier_refuses_to_assemble_a_family_on_demand(dossier_client):
+    """Assembly takes up to ninety seconds and this URL is exactly what a link checker
+    fetches. A family that is not filed gets a 404 with an explanation, never a build."""
+    assert dossier_client.get("/f/not-a-real-family-x9/dossier").status_code == 404
+
+
+def test_dossier_survives_a_citation_with_no_year(dossier_client, monkeypatch):
+    """Undated papers are common in the archive, and Jinja's sort filter compares None to an
+    int directly, so one of them took the whole document down with a TypeError."""
+    from codswallop import family as family_mod
+    fam = dict(FAKE)
+    fam["citations"] = {"a": {"title": "Undated paper", "year": None, "journal": "J"},
+                        "b": {"title": "Dated paper", "year": 2007, "journal": "J"}}
+    monkeypatch.setattr(family_mod, "decorate", lambda f: fam)
+    r = dossier_client.get("/f/lysozyme-c-p00698/dossier")
+    assert r.status_code == 200
+    body = r.get_data(as_text=True)
+    assert "Undated paper" in body and "Dated paper" in body
+    assert body.index("Dated paper") < body.index("Undated paper"), \
+        "dated papers lead; undated ones go last rather than crashing the sort"

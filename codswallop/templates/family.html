@@ -98,6 +98,15 @@
                   title="Copy a link that reopens this exact view">
             <span aria-hidden="true">🔗</span> Copy this view
           </button>
+
+          {# A plain link, not a fetch-and-blob: the dossier is a document, so let the
+             browser treat it as one. Opening in a tab is also what makes "print to PDF"
+             the obvious next step. #}
+          <a class="linkbtn" id="btnDossier" target="_blank" rel="noopener noreferrer"
+             href="{{ url_for('dossier', slug=slug) }}"
+             title="A self-contained family report, ready to print or attach">
+            <span aria-hidden="true">📄</span> Dossier
+          </a>
         </div>
 
         {# ---- hero: constellation with the entry list permanently beside it -------- #}

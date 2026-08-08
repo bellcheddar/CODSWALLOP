@@ -1,0 +1,318 @@
+{#
+  The family dossier: one self-contained file.
+
+  Deliberately not extending base.html. This document has to survive being saved, emailed and
+  opened years later with no server behind it, so it carries its own styles inline, loads no
+  fonts, runs no scripts and makes no requests. Everything here is already in the family
+  payload; nothing is fetched.
+
+  Light only, and sized for A4. It is a document, not a page: the dark archive theme is for
+  reading on a screen, and printing it would put a 300 mm square of ink on the paper.
+#}<meta charset="utf-8">
+<title>{{ fam.name or slug }} — CODSWALLOP dossier</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --ink: #1D2430; --dim: #55627A; --mute: #7C8AA3;
+    --line: #D3C7B0; --brass: #8A6D40; --oxide: #B8382C; --accent: #1F5FD8;
+    --paper: #FCFAF5; --surface: #F1ECE0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 28px 60px; background: var(--paper); color: var(--ink);
+    font: 14px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    max-width: 940px; margin-inline: auto;
+  }
+  h1 { font-size: 27px; margin: 0 0 4px; letter-spacing: -.01em; }
+  h2 {
+    font-size: 15px; margin: 34px 0 10px; padding-bottom: 5px;
+    border-bottom: 2px solid var(--brass); letter-spacing: .02em;
+  }
+  h3 { font-size: 12.5px; margin: 18px 0 6px; color: var(--dim); }
+  p { margin: 0 0 10px; }
+  a { color: var(--accent); text-decoration: none; }
+  .mono, code, td.n, .pdbid { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .sub { color: var(--mute); font-size: 12.5px; margin-bottom: 14px; }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; }
+  .tag {
+    font-family: ui-monospace, Menlo, monospace; font-size: 11px; padding: 2px 7px;
+    border: 1px solid var(--line); border-radius: 4px; color: var(--dim);
+  }
+
+  .stats { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0 4px; }
+  .stat {
+    border: 1px solid var(--line); border-radius: 8px; padding: 9px 13px;
+    background: var(--surface); min-width: 104px;
+  }
+  .stat b { display: block; font-size: 19px; font-family: ui-monospace, Menlo, monospace; }
+  .stat span { font-size: 9.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--mute); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 6px; }
+  th {
+    text-align: left; font-size: 9.5px; text-transform: uppercase; letter-spacing: .07em;
+    color: var(--mute); border-bottom: 1px solid var(--line); padding: 5px 8px 5px 0;
+  }
+  td { padding: 5px 8px 5px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  td.n { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .note {
+    font-size: 11.5px; color: var(--dim); border-left: 2px solid var(--brass);
+    padding-left: 11px; margin: 10px 0;
+  }
+  .seq {
+    font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; line-height: 1.7;
+    word-break: break-all; color: var(--dim); border: 1px solid var(--line);
+    border-radius: 6px; padding: 9px; background: var(--surface);
+  }
+  footer {
+    margin-top: 40px; padding-top: 14px; border-top: 1px solid var(--line);
+    font-size: 11px; color: var(--mute);
+  }
+  .plate {
+    display: inline-block; padding: 5px 12px; border-radius: 3px; background: var(--brass);
+    color: #FDF8EE; font-weight: 700; font-size: 11px; letter-spacing: .26em;
+  }
+
+  /* Printing is the point: a dossier that cannot become a PDF is not a dossier. Tables must
+     not be split across a page break mid-row, and headings must not be stranded at a
+     page foot with their section overleaf. */
+  @page { margin: 16mm 14mm; }
+  @media print {
+    body { padding: 0; max-width: none; background: #fff; }
+    a { color: var(--ink); }
+    h2, h3 { break-after: avoid-page; }
+    tr, .stat, .note { break-inside: avoid; }
+    .noprint { display: none; }
+  }
+</style>
+
+<span class="plate">CODSWALLOP</span>
+<h1>{{ fam.name or slug }}</h1>
+<p class="sub">
+  {{ fam.organism or "" }}{% if fam.seed %} · seed {{ fam.seed }}{% endif %}
+  {%- if fam.seed_length %} · {{ fam.seed_length }} aa{% endif %} ·
+  family defined as ≥{{ fam.identity_threshold }}% identity to that seed ·
+  compiled {{ generated }}
+</p>
+
+{% set s = fam.stats %}
+<div class="stats">
+  <div class="stat"><b>{{ "{:,}".format(s.entries or 0) }}</b><span>Entries</span></div>
+  <div class="stat"><b>{{ "{:,}".format(s.entities or 0) }}</b><span>Polymer entities</span></div>
+  <div class="stat"><b>{{ "{:,}".format(s.constructs or 0) }}</b><span>Distinct constructs</span></div>
+  <div class="stat"><b>{{ s.organisms }}</b><span>Organisms</span></div>
+  <div class="stat"><b>{{ "{:,}".format(s.holo_entries or 0) }}</b><span>Ligand-bound</span></div>
+  {% if s.best_resolution %}
+  <div class="stat"><b>{{ "%.2f"|format(s.best_resolution) }} Å</b><span>Best resolution</span></div>
+  {% endif %}
+  {% if s.median_resolution %}
+  <div class="stat"><b>{{ "%.2f"|format(s.median_resolution) }} Å</b><span>Median resolution</span></div>
+  {% endif %}
+</div>
+<p class="note">
+  Every figure here is counted over the whole family rather than quoted from one entry.
+  {% if fam.truncated %}
+    This family was capped: the search reported {{ "{:,}".format(fam.total_hits or 0) }} matching
+    entities and the {{ "{:,}".format(s.entities or 0) }} best-scoring were filed, so counts are a
+    floor rather than a total.
+  {% endif %}
+</p>
+
+{# ---- constructs: the panel this whole tool exists for ------------------------------ #}
+{% if fam.constructs %}
+<h2>Constructs, most-used first</h2>
+<p>{{ "{:,}".format(s.constructs or 0) }} distinct constructs across
+   {{ "{:,}".format(s.entries or 0) }} entries.
+   {{ "{:,}".format(s.engineered or 0) }} polymer entities differ from the UniProt canonical
+   sequence in some way, {{ "{:,}".format(s.tagged or 0) }} carry a recognised expression tag
+   and {{ "{:,}".format(s.fusions or 0) }} carry a fusion partner.</p>
+<p class="note">
+  "Differs from canonical" is not the same as "engineered". The canonical sequence is the
+  full gene product, so a secreted protein whose structures all start after its signal
+  peptide counts every one of them as different: lysozyme's most-used construct, residues
+  19&ndash;147 on 1,239 entities, is simply the mature protein. Read the construct column
+  below for what was actually done, rather than this count.
+</p>
+<table>
+  <thead><tr>
+    <th>Entities</th><th>Length</th><th>Best (Å)</th><th>Best entry</th><th>What was made</th>
+  </tr></thead>
+  <tbody>
+  {% for c in fam.constructs[:25] %}
+    <tr>
+      <td class="n">{{ c.n_entities }}</td>
+      <td class="n">{{ c.length or "" }}</td>
+      <td class="n">{{ "%.2f"|format(c.best_resolution) if c.best_resolution else "" }}</td>
+      <td class="n">{{ c.best_pdb_id or "" }}</td>
+      <td>{{ c.summary or "" }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% if fam.constructs|length > 25 %}
+<p class="sub">Showing the 25 most-used of {{ fam.constructs|length }}.</p>
+{% endif %}
+{% endif %}
+
+{# ---- conservation and the positions people deliberately change --------------------- #}
+{% if fam.msa and fam.msa.engineered %}
+<h2>Positions people deliberately mutate</h2>
+<p>Columns where the wild-type residue still dominates but a real minority carries something
+   else, which is a different question from "what varies across species".</p>
+<div class="tags">
+  {% for e in fam.msa.engineered[:30] %}
+  <span class="tag">{{ e.seed }}{{ e.pos }}{{ e.variants[0].aa if e.variants }}
+    {%- if e.substituted %} {{ "%.0f"|format(100 * e.substituted) }}%{% endif %}</span>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# ---- assembly ---------------------------------------------------------------------- #}
+{% if fam.assemblies and fam.assemblies.n %}
+{% set a = fam.assemblies %}
+<h2>What it assembles into</h2>
+<table>
+  <thead><tr><th>Oligomeric state</th><th>Chains</th><th>Entries</th><th>Share</th></tr></thead>
+  <tbody>
+  {% for st in a.states[:8] %}
+    <tr><td>{{ st.details }}</td><td class="n">{{ st.count }}</td>
+        <td class="n">{{ "{:,}".format(st.entries or 0) }}</td>
+        <td class="n">{{ "%.1f"|format(st.fraction) }}%</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="note">
+  {{ "{:,}".format(a.provenance.both or 0) }} entries have the depositor's assembly corroborated by
+  PISA, {{ "{:,}".format(a.provenance.author or 0) }} carry the depositor's word alone and
+  {{ "{:,}".format(a.provenance.software or 0) }} were assigned by PISA where the depositor gave
+  none. The middle figure is not a disagreement: PISA may have returned nothing or never run.
+  {% if a.n_ambiguous %}
+    {{ a.n_ambiguous }} entries carry more than one assembly with different chain counts, so
+    they have no single answer to quote:
+    {{ a.ambiguous[:20]|map(attribute='pdb_id')|join(", ") }}.
+  {% endif %}
+</p>
+{% endif %}
+
+{# ---- domains ----------------------------------------------------------------------- #}
+{% if fam.domains and fam.domains.domains %}
+<h2>Domain architecture</h2>
+<table>
+  <thead><tr><th>Domain</th><th>Source</th><th>Span (seed)</th><th>Chains</th></tr></thead>
+  <tbody>
+  {% for d in fam.domains.domains[:12] %}
+    <tr><td>{{ d.name or d.id }}</td><td class="n">{{ d.source }} {{ d.id if d.name }}</td>
+        <td class="n">{{ d.start }}–{{ d.end }}</td>
+        <td class="n">{{ "{:,}".format(d.n_chains or 0) }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{# ---- ligands ----------------------------------------------------------------------- #}
+{% if fam.ligands and fam.ligands.components %}
+<h2>What binds it</h2>
+<table>
+  <thead><tr><th>Component</th><th>Class</th><th>Name</th><th>Entries</th><th>Best (Å)</th></tr></thead>
+  <tbody>
+  {% for c in fam.ligands.components[:20] %}
+    <tr><td class="n">{{ c.id }}</td><td>{{ c.klass or "" }}</td>
+        <td>{{ (c.name or "")[:64]|title }}</td>
+        <td class="n">{{ "{:,}".format(c.count or 0) }}</td>
+        <td class="n">{{ "%.2f"|format(c.best_resolution) if c.best_resolution else "" }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{# ---- crystallisation --------------------------------------------------------------- #}
+{% if fam.crystals and fam.crystals.n_parsed %}
+<h2>How it crystallises</h2>
+<p>Parsed from the free text {{ "{:,}".format(fam.crystals.n_parsed or 0) }} depositors typed into
+   <code>_exptl_crystal_grow.pdbx_details</code>, out of {{ "{:,}".format(fam.crystals.n or 0) }}
+   entries that recorded anything at all.
+   {% if fam.crystals.ph_median %}Median pH {{ "%.1f"|format(fam.crystals.ph_median) }}
+   (range {{ "%.1f"|format(fam.crystals.ph_min) }} to {{ "%.1f"|format(fam.crystals.ph_max) }}).{% endif %}
+</p>
+{% if fam.crystals.precipitants %}
+<h3>Precipitants</h3>
+<div class="tags">
+  {% for p in fam.crystals.precipitants[:14] %}
+  <span class="tag">{{ p.name }} ×{{ p.n }}</span>
+  {% endfor %}
+</div>
+{% endif %}
+{% if fam.crystals.buffers %}
+<h3>Buffers</h3>
+<div class="tags">
+  {% for b in fam.crystals.buffers[:14] %}
+  <span class="tag">{{ b.name }} ×{{ b.n }}</span>
+  {% endfor %}
+</div>
+{% endif %}
+{% endif %}
+
+{# ---- quality ----------------------------------------------------------------------- #}
+{% if fam.quality and fam.quality.n %}
+<h2>Which entries to trust</h2>
+<p>{{ "{:,}".format(fam.quality.n or 0) }} entries carry a wwPDB validation report:
+   {{ "{:,}".format(fam.quality.ok or 0) }} clean, {{ "{:,}".format(fam.quality.check or 0) }} worth a
+   check and {{ "{:,}".format(fam.quality.poor or 0) }} with something to explain. Median
+   clashscore {{ fam.quality.median_clashscore }}, median RSRZ outliers
+   {{ fam.quality.median_rsrz }}%, median R-free minus R-work {{ fam.quality.median_r_gap }}.
+   {{ "{:,}".format(fam.quality.with_sf or 0) }} have released structure factors.</p>
+{% endif %}
+
+{# ---- organisms --------------------------------------------------------------------- #}
+{% if fam.orthologues %}
+<h2>Across species</h2>
+<table>
+  <thead><tr><th>Organism</th><th>Entries</th><th>Best (Å)</th><th>Ligand-bound</th><th>Seed covered</th></tr></thead>
+  <tbody>
+  {% for o in fam.orthologues[:12] %}
+    <tr><td>{{ o.organism }}</td><td class="n">{{ "{:,}".format(o.entries or 0) }}</td>
+        <td class="n">{{ "%.2f"|format(o.best_resolution) if o.best_resolution else "" }}</td>
+        <td class="n">{{ o.holo }}</td>
+        <td class="n">{{ "%.0f"|format(o.coverage_pct) if o.coverage_pct else "" }}%</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{# ---- the seed sequence, so the document is self-contained -------------------------- #}
+{% if fam.seed_sequence %}
+<h2>Seed sequence</h2>
+<p class="sub">{{ fam.seed_length }} residues. Every identity figure in this document is
+   measured against this sequence.</p>
+<div class="seq">{{ fam.seed_sequence }}</div>
+{% endif %}
+
+{# ---- citations --------------------------------------------------------------------- #}
+{% if citations %}
+<h2>Primary citations</h2>
+<p class="sub">One record per paper, not per entry.</p>
+<table>
+  <thead><tr><th>Year</th><th>Citation</th></tr></thead>
+  <tbody>
+  {% for c in citations[:40] %}
+    <tr>
+      <td class="n">{{ c.year or "" }}</td>
+      <td>{{ c.title }}{% if c.journal %} <i>{{ c.journal }}</i>{% endif %}
+        {%- if c.doi %} <span class="mono">doi:{{ c.doi }}</span>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<footer>
+  <p><b>CODSWALLOP</b> · Comparative Overview of Domains, Structures, Whole-families,
+     Alignments, Ligands, Lineages, Organisms &amp; PDB entries.
+     Compiled {{ generated }} from
+     <a href="https://codswallop.mdeller.com/f/{{ slug }}">codswallop.mdeller.com/f/{{ slug }}</a>.</p>
+  <p>Data from the <a href="https://www.rcsb.org/">RCSB PDB</a>, the
+     <a href="https://www.ebi.ac.uk/pdbe/">PDBe</a>,
+     <a href="https://www.uniprot.org/">UniProt</a> and
+     <a href="https://www.ebi.ac.uk/interpro/">InterPro</a>. Please cite them, and the primary
+     papers above, rather than this tool: the data did the work.</p>
+  <p>Built by <a href="https://marcdeller.com">Marc C. Deller, D.Phil.</a></p>
+</footer>
