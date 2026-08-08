@@ -1798,8 +1798,7 @@
   }
 
   function fail(message) {
-    $("filing").innerHTML = '<span class="plate">Empty</span>' +
-      '<p>' + esc(message) + "</p>" +
+    $("filing").innerHTML = '<p class="failed">' + esc(message) + "</p>" +
       '<p style="margin-top:16px"><a href="/">← Ask for something else</a></p>';
     $("filing").hidden = false;
   }

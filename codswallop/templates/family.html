@@ -45,6 +45,15 @@
     {# ---- stat strip ---------------------------------------------------------------- #}
     <div class="statstrip" id="statStrip"></div>
 
+    {# ---- the filing state, shown while a cold family is assembled. Above the panels,
+       ---- because a progress bar underneath the thing it is filling is a progress bar
+       ---- nobody sees. -------------------------------------------------------------- #}
+    <div class="filing" id="filing" {% if family %}hidden{% endif %}>
+      <p id="filingWhat">Assembling the family from the RCSB, UniProt and InterPro.</p>
+      <p class="step" id="filingStep">resolving&hellip;</p>
+      <div class="bar"><i></i></div>
+    </div>
+
     {# ================================ OVERVIEW (phase 1) ========================== #}
     <section id="sec-overview" class="section" role="tabpanel" aria-labelledby="tab-overview">
 
@@ -347,13 +356,6 @@
     </section>
     {% endfor %}
 
-    {# ---- the filing state, shown while a cold family is assembled ----------------- #}
-    <div class="filing" id="filing" {% if family %}hidden{% endif %}>
-      <span class="plate">Filing</span>
-      <p id="filingWhat">Assembling the family from the RCSB, UniProt and InterPro.</p>
-      <p class="step" id="filingStep">resolving&hellip;</p>
-      <div class="bar"><i></i></div>
-    </div>
   </div>
 </div>
 
