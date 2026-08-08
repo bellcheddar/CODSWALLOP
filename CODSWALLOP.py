@@ -327,6 +327,38 @@ def _report_artefacts() -> None:
               f"placeholder map{where}.")
 
 
+def cmd_artefacts(args) -> int:
+    """Report artefact state. Runs anywhere, including the droplet, which cannot build them.
+
+    This is what closes the loop on families a READER created: they exist only in the
+    droplet's database, so a workstation never knows to build artefacts for them and they
+    sit on the placeholder map indefinitely. `deploy/push_embeddings.sh` calls this over SSH
+    after every push so the gap is named rather than discovered months later.
+    """
+    from codswallop import artefacts
+
+    db.init()
+    rows = artefacts.survey()
+    for s in rows:
+        e, c = s["embedding"], s["contacts"]
+        if args.missing and e["current"] and c["current"]:
+            continue
+        print("  %-42s %-12s emb %-5s %-8s contacts %-5s %s" % (
+            s["slug"], (s["query"] or "-")[:12],
+            ("v%s" % e["version"]) if e["version"] else "none",
+            "ok" if e["current"] else "MISSING",
+            ("v%s" % c["version"]) if c["version"] else "none",
+            "ok" if c["current"] else "missing"))
+    if args.missing and not any(
+            not (s["embedding"]["current"] and s["contacts"]["current"]) for s in rows):
+        print("  none: every family has current artefacts")
+    summary = artefacts.summary()
+    print(f"\n  {summary['embeddings_current']}/{summary['families']} embeddings current, "
+          f"{summary['contacts_current']}/{summary['families']} contacts. "
+          f"{summary['on_placeholder']} on the placeholder map.")
+    return 0
+
+
 def cmd_stats(_args) -> int:
     db.init()
     for k, v in db.stats().items():
@@ -381,6 +413,10 @@ def main(argv=None) -> int:
     sp.add_argument("--max-contacts", type=int, default=40,
                     help="cap on entries per PLIP run")
     sp.set_defaults(fn=cmd_warm)
+
+    sp = sub.add_parser("artefacts", help="which families have a current embedding/contacts")
+    sp.add_argument("--missing", action="store_true", help="list only the stale ones")
+    sp.set_defaults(fn=cmd_artefacts)
 
     sub.add_parser("stats", help="cache statistics").set_defaults(fn=cmd_stats)
     sub.add_parser("purge", help="drop expired cache entries").set_defaults(fn=cmd_purge)

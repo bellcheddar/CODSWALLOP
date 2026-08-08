@@ -42,3 +42,11 @@ SSH_CMD=(ssh); [[ -n "$SSH_KEY" ]] && SSH_CMD=(ssh -i "${SSH_KEY/#\~/$HOME}")
   "chown -R codswallop:codswallop ${DROPLET_PATH}/data && \
    find ${DROPLET_PATH}/data/embeddings ${DROPLET_PATH}/data/contacts -name '*.json' 2>/dev/null | wc -l | xargs echo '   artefacts on the droplet:'"
 echo "==> Done. The map switches to the embedding on the next page load."
+
+# Families a READER created on the droplet exist only in its database, so this workstation
+# never knows to build artefacts for them and they sit on the placeholder map indefinitely.
+# Named here, where the two machines are already talking to each other.
+echo
+echo "==> Artefact state on the droplet (anything MISSING needs a workstation):"
+"${SSH_CMD[@]}" "$DROPLET_SSH" \
+  "cd ${DROPLET_PATH} && ./.venv/bin/python CODSWALLOP.py artefacts --missing" || true
