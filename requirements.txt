@@ -8,3 +8,6 @@ gunicorn>=21.2          # prod WSGI server (Linux droplet)
 jinja2>=3.1             # templates (pulled in by flask, pinned for clarity)
 python-dotenv>=1.0      # .env: droplet SSH target, server name, bind address
 biopython>=1.85         # pairwise alignment for the construct diff engine (Phase 2)
+
+# Development only; not installed on the droplet.
+# pytest>=8.0

@@ -9,7 +9,8 @@ batched, and back off when told to.
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Callable, Iterable, Optional
 
 import requests
 from tenacity import (
@@ -110,3 +111,26 @@ def graphql(url: str, query: str, variables: Optional[dict] = None) -> dict:
     if body.get("errors"):
         raise RuntimeError(f"GraphQL errors: {body['errors']}")
     return body.get("data") or {}
+
+
+def parallel_map(fn: Callable, items: list, workers: Optional[int] = None) -> list:
+    """Run `fn` over `items` concurrently, preserving order.
+
+    A cold family is ~160 HTTP calls to two APIs, and run one at a time they were 57 of the
+    75 seconds a large family took to assemble. The batches are independent by construction
+    (each is a disjoint set of ids), so the only thing serialising them was the loop.
+
+    Bounded deliberately, and low. These are free public APIs maintained by other people: the
+    point is to stop wasting round-trip latency, not to open thirty sockets to the RCSB. Six
+    concurrent requests is roughly what a browser opens to one host.
+
+    Exceptions propagate, so a failed batch still fails the build rather than silently
+    yielding a family with a hole in it.
+    """
+    if not items:
+        return []
+    n = workers or config.HTTP_WORKERS
+    if n <= 1 or len(items) == 1:
+        return [fn(x) for x in items]
+    with ThreadPoolExecutor(max_workers=min(n, len(items))) as pool:
+        return list(pool.map(fn, items))

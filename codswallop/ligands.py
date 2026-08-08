@@ -145,12 +145,16 @@ def _chunks(items: list, n: int) -> Iterable[list]:
 
 def details(comp_ids: list[str]) -> dict:
     """Batch-fetch component detail and classify each one."""
-    out: dict[str, dict] = {}
-    for batch in _chunks(sorted(set(c.upper() for c in comp_ids if c)), config.GRAPHQL_BATCH):
-        data = db.cached(
-            ("chemcomps", PARSE_VERSION, batch),
-            lambda ids=batch: http.graphql(config.RCSB_GRAPHQL_URL, _QUERY, {"ids": ids}),
+    batches = list(_chunks(sorted(set(c.upper() for c in comp_ids if c)), config.GRAPHQL_BATCH))
+
+    def one(ids):
+        return db.cached(
+            ("chemcomps", PARSE_VERSION, ids),
+            lambda: http.graphql(config.RCSB_GRAPHQL_URL, _QUERY, {"ids": ids}),
         )
+
+    out: dict[str, dict] = {}
+    for data in http.parallel_map(one, batches):
         for c in (data.get("chem_comps") or []):
             if not c:
                 continue

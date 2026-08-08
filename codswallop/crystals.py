@@ -17,7 +17,7 @@ import re
 from collections import Counter
 from typing import Optional
 
-PARSE_VERSION = 1
+PARSE_VERSION = 2
 
 # --------------------------------------------------------------------------------------
 # Chemistry
@@ -119,9 +119,18 @@ def parse(crystal: Optional[dict]) -> Optional[dict]:
         precipitants.remove("PEG (unspecified)")
 
     buffers = _match_all(blob, BUFFERS)
-    # Bis-Tris propane also matches the Bis-Tris pattern's prefix; keep only the specific one.
+    # Three buffers whose names nest inside each other, resolved most-specific-first.
+    #
+    # "Bis-Tris propane" contains "Bis-Tris" contains "Tris", and `\btris\b` matches inside
+    # "Bis-Tris" because a word boundary falls between the hyphen and the T. Left alone, every
+    # Bis-Tris condition was also tallied as Tris: on the beta-2 adrenergic receptor that put
+    # about twelve conditions into the wrong row of the "what worked" table.
     if "Bis-Tris propane" in buffers and "Bis-Tris" in buffers:
         buffers.remove("Bis-Tris")
+    if ("Bis-Tris propane" in buffers or "Bis-Tris" in buffers) and "Tris" in buffers:
+        # Only if plain Tris is not ALSO named separately somewhere in the text.
+        if not re.search(r"(?<!bis[\s\-])\btris\b(?!\w)", blob, re.I):
+            buffers.remove("Tris")
 
     methods = _match_all(blob, METHODS)
     if "Vapour diffusion" in methods and any(

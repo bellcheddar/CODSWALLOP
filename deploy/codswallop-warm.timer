@@ -1,0 +1,13 @@
+# The PDB releases on Wednesday 00:00 UTC. Warming a few hours later means the week's new
+# entries are already filed before anyone looks, and the one-week cache TTL lines up with
+# the release cycle rather than cutting across it.
+[Unit]
+Description=Weekly CODSWALLOP cache warm, after the PDB release
+
+[Timer]
+OnCalendar=Wed 03:30 UTC
+Persistent=true
+RandomizedDelaySec=900
+
+[Install]
+WantedBy=timers.target

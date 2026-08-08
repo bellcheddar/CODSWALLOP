@@ -79,14 +79,16 @@ def _parse(payload: dict) -> dict:
 
 def fetch(instance_ids: list[str]) -> dict:
     """Batch-fetch per-chain features. Each batch is cached independently."""
-    out: dict[str, dict] = {}
-    for batch in _chunks(instance_ids, config.GRAPHQL_BATCH):
-        key_ids = sorted(batch)
-        part = db.cached(
-            ("instances", PARSE_VERSION, key_ids),
-            lambda ids=key_ids: _parse(
-                http.graphql(config.RCSB_GRAPHQL_URL, _QUERY, {"ids": ids})),
+    batches = [sorted(b) for b in _chunks(instance_ids, config.GRAPHQL_BATCH)]
+
+    def one(ids):
+        return db.cached(
+            ("instances", PARSE_VERSION, ids),
+            lambda: _parse(http.graphql(config.RCSB_GRAPHQL_URL, _QUERY, {"ids": ids})),
         )
+
+    out: dict[str, dict] = {}
+    for part in http.parallel_map(one, batches):
         out.update(part)
     return out
 

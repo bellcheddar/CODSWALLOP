@@ -66,9 +66,13 @@ SNIP
 fi
 
 echo "==> Installing the systemd unit"
-cp "$APP_DIR/deploy/codswallop-web.service" /etc/systemd/system/
+cp "$APP_DIR/deploy/codswallop-web.service"  /etc/systemd/system/
+cp "$APP_DIR/deploy/codswallop-warm.service" /etc/systemd/system/
+cp "$APP_DIR/deploy/codswallop-warm.timer"   /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now codswallop-web.service
+# Weekly, a few hours after the PDB's Wednesday release.
+systemctl enable --now codswallop-warm.timer
 
 echo "==> Installing the nginx site"
 sed -e "s|__SERVER_NAME__|${SERVER_NAME}|g" -e "s|__BIND_ADDR__|${BIND_ADDR}|g" \

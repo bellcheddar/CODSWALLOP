@@ -1,0 +1,24 @@
+# Rebuild every filed family, so a reader never pays for a stale cache.
+# Installed to /etc/systemd/system/ by provision.sh; fired by codswallop-warm.timer.
+[Unit]
+Description=CODSWALLOP cache warm (rebuild every filed family)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=codswallop
+Group=codswallop
+WorkingDirectory=/opt/codswallop
+EnvironmentFile=-/opt/codswallop/.env
+ExecStart=/opt/codswallop/.venv/bin/python /opt/codswallop/CODSWALLOP.py warm --force
+# One family can take half a minute cold, and there may be many.
+TimeoutStartSec=3600
+Nice=10
+# Two cores, shared with eight other apps: warming must never starve a live request.
+CPUWeight=20
+IOWeight=20
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/codswallop

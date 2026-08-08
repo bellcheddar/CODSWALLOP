@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 
 from codswallop import config, db
 
@@ -81,6 +82,44 @@ def cmd_build(args) -> int:
     return 0
 
 
+def cmd_warm(args) -> int:
+    """Pre-build families, so a cold cache is paid for by cron rather than by a reader.
+
+    With no arguments it refreshes every family already in the cache, which is what the
+    weekly timer wants: the PDB releases on Wednesdays, and a family that was assembled last
+    week is stale in exactly the way a rebuild fixes.
+    """
+    from codswallop import family, resolve
+
+    db.init()
+    queries = args.queries or [f["query"] for f in db.recent_families(limit=200) if f.get("query")]
+    if not queries:
+        # recent_families does not carry the query, so fall back to the stored one per slug.
+        conn = db.connect()
+        queries = [r["query"] for r in conn.execute("SELECT query FROM family") if r["query"]]
+    if not queries:
+        print("Nothing filed yet, and no queries given.")
+        return 0
+
+    ok = failed = 0
+    for q in queries:
+        t0 = time.time()
+        try:
+            result = resolve.resolve(q)
+            if result["status"] != "resolved":
+                print(f"  skip  {q!r}: {result.get('message') or 'ambiguous'}")
+                continue
+            fam = family.get_or_build(result["seed"], q, force=args.force)
+            print(f"  warm  {fam['slug']:<44} {fam['stats']['entries']:>5} entries  "
+                  f"{time.time() - t0:>5.1f}s")
+            ok += 1
+        except Exception as exc:            # one bad family must not stop the rest
+            print(f"  FAIL  {q!r}: {exc}")
+            failed += 1
+    print(f"\n{ok} warmed, {failed} failed.")
+    return 1 if failed and not ok else 0
+
+
 def cmd_stats(_args) -> int:
     db.init()
     for k, v in db.stats().items():
@@ -110,6 +149,11 @@ def main(argv=None) -> int:
     sp.add_argument("query", help="PDB ID, UniProt accession, gene, Pfam/InterPro, sequence or name")
     sp.add_argument("--refresh", action="store_true", help="rebuild even if cached")
     sp.set_defaults(fn=cmd_build)
+
+    sp = sub.add_parser("warm", help="pre-build families so the first visitor waits for nothing")
+    sp.add_argument("queries", nargs="*", help="queries to warm (default: everything already filed)")
+    sp.add_argument("--force", action="store_true", help="rebuild even if still fresh")
+    sp.set_defaults(fn=cmd_warm)
 
     sub.add_parser("stats", help="cache statistics").set_defaults(fn=cmd_stats)
     sub.add_parser("purge", help="drop expired cache entries").set_defaults(fn=cmd_purge)

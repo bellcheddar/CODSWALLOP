@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import time
 from collections import Counter
@@ -24,6 +25,8 @@ from . import (config, constructs as construct_engine, crystals as crystal_engin
 # P00918, and 12 accessions cover almost all the rest), so this cap costs nothing real while
 # stopping a diverse family from making a hundred UniProt calls.
 MAX_REFERENCES = 40
+
+logger = logging.getLogger(__name__)
 
 
 def slugify(text: str, fallback: str = "family") -> str:
@@ -173,9 +176,18 @@ def decorate(fam: dict) -> dict:
 
     # Crystallisation and validation summaries read the entry rows, and _compact drops those
     # once the derived views exist. Computed before it, not after.
-    fam["crystals"] = crystal_engine.summarise(fam["entries"])
-    fam["quality"] = build_quality(fam["entries"])
-    fam["ligands"] = ligand_engine.summarise(fam["entries"])
+    #
+    # Each enrichment is optional. The family inventory is the page; a panel that could not
+    # be built because an upstream API had a bad afternoon should cost the reader that panel,
+    # not the whole family. Only the enrichments that make their own network calls need this
+    # (ligands fetches chem_comp detail); the pure-parse ones are wrapped for symmetry so a
+    # future change cannot quietly make one of them fatal.
+    fam["crystals"] = _optional("crystals", lambda: crystal_engine.summarise(fam["entries"]),
+                                {"n": 0, "n_parsed": 0})
+    fam["quality"] = _optional("quality", lambda: build_quality(fam["entries"]),
+                               {"n": 0, "rows": []})
+    fam["ligands"] = _optional("ligands", lambda: ligand_engine.summarise(fam["entries"]),
+                               {"components": [], "by_class": {}, "n": 0})
 
     # The classification supersedes the Phase 1 exclusion list that decided the amber halo.
     # "Ligand-bound" now means a component somebody put there on purpose (a ligand or a
@@ -205,8 +217,10 @@ def decorate(fam: dict) -> dict:
         lambda: build_constructs(members, fam["sequences"]),
     )
     _apply_constructs(fam, members)
-    fam["domains"] = build_domains(fam, members)
-    fam["orthologues"] = build_orthologue_matrix(members, fam.get("seed_length") or 0)
+    fam["domains"] = _optional("domains", lambda: build_domains(fam, members),
+                               {"sources": [], "domains": []})
+    fam["orthologues"] = _optional(
+        "orthologues", lambda: build_orthologue_matrix(members, fam.get("seed_length") or 0), [])
     fam.pop("domains_by_entity", None)      # per-chain detail: aggregated, not shipped
     return fam
 
@@ -255,6 +269,16 @@ def _attach_density(fam: dict, members: list[dict]) -> None:
             domains_by_entity[m["entity_id"]] = rec["domains"]
 
     fam["domains_by_entity"] = domains_by_entity
+
+
+def _optional(name: str, build, fallback):
+    """Build one enrichment, or fall back rather than take the whole family down with it."""
+    try:
+        return build()
+    except Exception:                       # noqa: BLE001 - deliberately broad
+        logger.warning("optional panel %r failed; serving the family without it",
+                       name, exc_info=True)
+        return fallback
 
 
 def _apply_constructs(fam: dict, members: list[dict]) -> None:
@@ -408,13 +432,15 @@ def build_constructs(members: list[dict], sequences: dict[str, str]) -> list[dic
     # a chimera must be diffed against, and getting it from the family rather than from the
     # entity is the whole point of being family-centric.
     dominant = acc_counts.most_common(1)[0][0] if acc_counts else None
+    # Fetched concurrently: on a diverse family this was 36 sequential UniProt round trips
+    # before anything else could start.
+    from .http import parallel_map
     references: dict[str, dict] = {}
-    for acc in wanted:
-        rec = uniprot.entry(acc)
+    for acc, (rec, feats) in zip(wanted, parallel_map(uniprot.entry_with_features, wanted)):
         if rec and rec.get("sequence"):
             references[acc] = {"sequence": rec["sequence"], "name": rec.get("name"),
                                "organism": rec.get("organism"), "length": rec.get("length"),
-                               "features": uniprot.features(acc)}
+                               "features": feats or {}}
 
     rows: list[dict] = []
     for seq_id, users in by_seq.items():

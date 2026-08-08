@@ -255,15 +255,18 @@ def fetch_entities(entity_ids: list[str]) -> list[dict]:
     Each batch is cached independently, so two families that overlap (a mutant series and
     its parent, say) share every batch they have in common.
     """
-    out: list[dict] = []
-    for batch in _chunks(entity_ids, config.GRAPHQL_BATCH):
-        # Sort within the batch so the same set of ids in a different order is one cache
-        # entry, not two.
-        key_ids = sorted(batch)
-        data = db.cached(
-            ("entities", PARSE_VERSION, key_ids),
-            lambda ids=key_ids: http.graphql(config.RCSB_GRAPHQL_URL, _ENTITY_QUERY, {"ids": ids}),
+    # Sort within each batch so the same set of ids in a different order is one cache entry,
+    # not two.
+    batches = [sorted(b) for b in _chunks(entity_ids, config.GRAPHQL_BATCH)]
+
+    def one(ids):
+        return db.cached(
+            ("entities", PARSE_VERSION, ids),
+            lambda: http.graphql(config.RCSB_GRAPHQL_URL, _ENTITY_QUERY, {"ids": ids}),
         )
+
+    out: list[dict] = []
+    for data in http.parallel_map(one, batches):
         out.extend([e for e in (data.get("polymer_entities") or []) if e])
     return out
 

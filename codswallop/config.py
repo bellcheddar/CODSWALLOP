@@ -43,6 +43,9 @@ INTERPRO_ENTRY_URL = "https://www.ebi.ac.uk/interpro/api/entry/{db}/{accession}"
 USER_AGENT = f"CODSWALLOP/{VERSION} (+https://codswallop.mdeller.com; marc@marcdeller.com)"
 
 HTTP_TIMEOUT = 60          # seconds per request
+# Concurrent requests to any one upstream. Low on purpose: these are free public APIs
+# and the aim is to stop wasting round-trip latency, not to hammer them.
+HTTP_WORKERS = int(os.environ.get('HTTP_WORKERS', '6'))
 HTTP_MAX_RETRIES = 5
 
 # --------------------------------------------------------------------------------------
