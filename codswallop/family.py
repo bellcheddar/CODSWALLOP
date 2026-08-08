@@ -16,8 +16,8 @@ import time
 from collections import Counter
 from typing import Optional
 
-from . import (config, constructs as construct_engine, db, instances, layout,
-               rcsb, uniprot)
+from . import (config, constructs as construct_engine, crystals as crystal_engine, db,
+               instances, layout, ligands as ligand_engine, rcsb, uniprot)
 
 # How many distinct UniProt references a family will fetch canonicals for. A family is
 # dominated by a handful of accessions (carbonic anhydrase II: 1,249 of 1,490 entities are
@@ -170,6 +170,29 @@ def decorate(fam: dict) -> dict:
     identities = [m["identity"] for m in members if m.get("identity") is not None]
     floor = min(identities) if identities else config.IDENTITY_MIN
     fam["map"] = layout.compute(members, min(floor, config.IDENTITY_MAX - 1))
+
+    # Crystallisation and validation summaries read the entry rows, and _compact drops those
+    # once the derived views exist. Computed before it, not after.
+    fam["crystals"] = crystal_engine.summarise(fam["entries"])
+    fam["quality"] = build_quality(fam["entries"])
+    fam["ligands"] = ligand_engine.summarise(fam["entries"])
+
+    # The classification supersedes the Phase 1 exclusion list that decided the amber halo.
+    # "Ligand-bound" now means a component somebody put there on purpose (a ligand or a
+    # cofactor), not merely a component: with the old list, "how many structures are
+    # ligand-bound" was close to "how many were frozen in glycerol".
+    _klass = {c["id"]: c["klass"] for c in fam["ligands"]["components"]}
+    for m in members:
+        m["has_ligand_heuristic"] = m["has_ligand"]
+        # This runs BEFORE _compact, so a member's ligands are still full dicts rather than
+        # the bare id list the client eventually receives.
+        m["has_ligand"] = any(
+            _klass.get(((lig.get("id") if isinstance(lig, dict) else lig) or "").upper())
+            in ligand_engine.COUNTS_AS_BOUND
+            for lig in (m.get("ligands") or [])
+        ) if _klass else m["has_ligand"]
+    fam["stats"]["holo_entries_heuristic"] = fam["stats"]["holo_entries"]
+    fam["stats"]["holo_entries"] = sum(1 for m in members if m["has_ligand"])
 
     _compact(fam, members)
 
@@ -463,6 +486,63 @@ def build_constructs(members: list[dict], sequences: dict[str, str]) -> list[dic
     # Most-used constructs first: "what did most people make" is the question this answers.
     rows.sort(key=lambda r: (-r["n_entities"], r["length"]))
     return rows
+
+
+def build_quality(entries: list[dict]) -> dict:
+    """A blunt triage of which entries to trust.
+
+    Thresholds are the ones the wwPDB validation report itself flags on, not invented here:
+    a clashscore over 20 and RSRZ outliers over 5 % are the standard "worse than most of the
+    archive at this resolution" marks. Reported as a traffic light per entry plus the
+    family's distribution, because a single entry's clashscore means little without knowing
+    what the rest of the family managed.
+    """
+    rows = []
+    for e in entries:
+        v = e.get("validation")
+        if not v:
+            continue
+        flags = []
+        if (v.get("clashscore") or 0) > 20:
+            flags.append("clashscore")
+        if (v.get("rsrz_outliers") or 0) > 5:
+            flags.append("RSRZ outliers")
+        if (v.get("rota_outliers") or 0) > 5:
+            flags.append("rotamer outliers")
+        if (v.get("rama_outliers") or 0) > 0.5:
+            flags.append("Ramachandran outliers")
+        gap = None
+        if e.get("r_free") is not None and e.get("r_work") is not None:
+            gap = round(e["r_free"] - e["r_work"], 3)
+            # A wide R-free/R-work gap is the classic overfitting tell.
+            if gap > 0.07:
+                flags.append("R-free gap")
+        rows.append({
+            "pdb_id": e["pdb_id"], "resolution": e.get("resolution"),
+            "clashscore": v.get("clashscore"), "rsrz": v.get("rsrz_outliers"),
+            "rama": v.get("rama_outliers"), "rota": v.get("rota_outliers"),
+            "eds_r": v.get("eds_r"), "completeness": v.get("completeness"),
+            "r_gap": gap, "has_sf": e.get("has_sf"),
+            "flags": flags,
+            "verdict": "poor" if len(flags) >= 2 else ("check" if flags else "ok"),
+        })
+
+    rows.sort(key=lambda r: (-len(r["flags"]), r.get("resolution") or 99))
+    def med(key):
+        vals = sorted(r[key] for r in rows if r.get(key) is not None)
+        return vals[len(vals) // 2] if vals else None
+
+    return {
+        "n": len(rows),
+        "ok": sum(1 for r in rows if r["verdict"] == "ok"),
+        "check": sum(1 for r in rows if r["verdict"] == "check"),
+        "poor": sum(1 for r in rows if r["verdict"] == "poor"),
+        "with_sf": sum(1 for r in rows if r["has_sf"]),
+        "median_clashscore": med("clashscore"),
+        "median_rsrz": med("rsrz"),
+        "median_r_gap": med("r_gap"),
+        "rows": rows[:400],
+    }
 
 
 def build_domains(fam: dict, members: list[dict]) -> dict:

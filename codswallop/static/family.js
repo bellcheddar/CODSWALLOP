@@ -1014,6 +1014,210 @@
   }
 
   /* ==================================================================================
+     10c. Phase 3 (metadata half): ligands, crystals, quality
+     ================================================================================== */
+  var ligandFilter = "real";
+  var DESIGNED = { ligand: 1, cofactor: 1 };
+
+  function renderLigands() {
+    var L = S.family.ligands || { components: [], by_class: {} };
+    var comps = L.components.filter(function (c) {
+      return ligandFilter === "all" || DESIGNED[c.klass];
+    });
+    var counts = Object.keys(L.by_class || {}).sort(function (a, b) {
+      return L.by_class[b] - L.by_class[a];
+    }).map(function (k) { return k + " " + L.by_class[k]; }).join(" · ");
+    $("ligandSub").textContent = commas(L.n) + " distinct components · " + counts;
+
+    if (!comps.length) {
+      $("ligandTable").innerHTML = '<p class="empty">No components in that class.</p>';
+      return;
+    }
+    var rows = comps.slice(0, 400).map(function (c) {
+      return "<tr>" +
+        '<td class="n"><a href="https://www.rcsb.org/ligand/' + esc(c.id) +
+          '" target="_blank" rel="noopener noreferrer">' + esc(c.id) + "</a></td>" +
+        '<td class="n">' + commas(c.count) + "</td>" +
+        '<td class="n">' + (c.best_resolution ? Number(c.best_resolution).toFixed(2) : "—") + "</td>" +
+        '<td><span class="klass ' + esc(c.klass.split("/")[0]) + '">' + esc(c.klass) + "</span></td>" +
+        "<td>" + esc(c.name || "") +
+          (c.smiles ? '<span class="smiles">' + esc(c.smiles) + "</span>" : "") + "</td>" +
+        '<td class="n">' + esc(c.formula || "") + "</td>" +
+        "</tr>";
+    }).join("");
+    $("ligandTable").innerHTML =
+      '<div class="tablewrap"><table class="ctable"><thead><tr>' +
+      "<th>CCD</th><th>Entries</th><th>Best Å</th><th>Class</th><th>Name</th><th>Formula</th>" +
+      "</tr></thead><tbody>" + rows + "</tbody></table></div>" +
+      '<p class="caveat">Metals are classified as ions. Whether a metal is structural or ' +
+      "catalytic depends on the protein, not the component: the zinc in carbonic anhydrase " +
+      "is a catalytic cofactor filed here as an ion. " +
+      "&ldquo;Ligand-bound&rdquo; on the overview counts ligands and cofactors only.</p>";
+  }
+
+  function renderCrystals() {
+    var c = S.family.crystals || { n: 0 };
+    if (!c.n) {
+      $("crystalSub").textContent = "no crystallisation conditions recorded";
+      $("crystalTables").innerHTML = '<p class="empty">Nothing here was crystallised.</p>';
+      return;
+    }
+    $("crystalSub").textContent = commas(c.n) + " entries carry a condition, " +
+      commas(c.n_parsed) + " parsed · pH " + c.ph_min + "–" + c.ph_max +
+      " (median " + c.ph_median + ")" +
+      (c.temp_median != null ? " · median " + c.temp_median + "°C" : "");
+
+    // pH against precipitant, coloured by resolution. The question is "what pH and what
+    // precipitant produced the good crystals", so resolution has to be the colour.
+    var pts = c.points || [];
+    var svg = $("crystalScatter");
+    if (!pts.length) { svg.innerHTML = ""; }
+    else {
+      var W = 1000, H = 280, padL = 46, padB = 34, padT = 12, padR = 12;
+      var cats = [];
+      pts.forEach(function (p) { if (cats.indexOf(p.precipitant) < 0) cats.push(p.precipitant); });
+      cats = cats.slice(0, 14);
+      var res = pts.map(function (p) { return p.resolution; }).filter(function (r) { return r != null; });
+      var rMin = Math.min.apply(null, res), rMax = Math.max.apply(null, res);
+      var phLo = Math.floor(Math.min.apply(null, pts.map(function (p) { return p.ph; })));
+      var phHi = Math.ceil(Math.max.apply(null, pts.map(function (p) { return p.ph; })));
+      var X = function (ph) { return padL + (W - padL - padR) * (ph - phLo) / Math.max(1, phHi - phLo); };
+      var Y = function (cat) {
+        var i = cats.indexOf(cat); if (i < 0) i = cats.length;
+        return padT + (H - padT - padB) * (i + 0.5) / (cats.length + 1);
+      };
+      var out = [];
+      for (var t = phLo; t <= phHi; t++) {
+        out.push('<line x1="' + X(t) + '" y1="' + padT + '" x2="' + X(t) + '" y2="' + (H - padB) +
+          '" stroke="var(--line)" stroke-width="0.6"/>');
+        out.push('<text class="covaxis" x="' + X(t) + '" y="' + (H - padB + 14) +
+          '" text-anchor="middle">pH ' + t + "</text>");
+      }
+      cats.forEach(function (cat) {
+        out.push('<text class="covaxis" x="4" y="' + (Y(cat) + 3) + '">' +
+          esc(cat.length > 14 ? cat.slice(0, 13) + "…" : cat) + "</text>");
+      });
+      pts.forEach(function (p) {
+        if (p.ph == null) return;
+        // Better resolution is a hotter dot: mint at the good end, oxide at the poor end.
+        var f = (p.resolution == null || rMax === rMin) ? 0.5
+              : (p.resolution - rMin) / (rMax - rMin);
+        var col = f < 0.34 ? "var(--mint)" : (f < 0.67 ? "var(--cyan)" : "var(--oxide)");
+        out.push('<circle class="scatterdot" cx="' + X(p.ph).toFixed(1) + '" cy="' +
+          (Y(p.precipitant) + (Math.random() - 0.5) * 9).toFixed(1) +
+          '" r="3.1" fill="' + col + '" fill-opacity="0.75"><title>' + esc(p.pdb_id) +
+          " · pH " + p.ph + (p.resolution ? " · " + p.resolution + " Å" : "") +
+          " · " + esc(p.precipitant) + "</title></circle>");
+      });
+      svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+      svg.setAttribute("preserveAspectRatio", "none");
+      svg.innerHTML = out.join("");
+      $("crystalLegend").innerHTML =
+        '<span><i style="background:var(--mint)"></i>best resolution</span>' +
+        '<span><i style="background:var(--cyan)"></i>middle</span>' +
+        '<span><i style="background:var(--oxide)"></i>poorest</span>' +
+        "<span>" + pts.length + " entries with a recorded pH. Vertical jitter only.</span>";
+    }
+
+    function condTable(title, rows) {
+      if (!rows || !rows.length) return "";
+      return "<div><h3 style='font-size:10px;text-transform:uppercase;letter-spacing:.12em;" +
+        "color:var(--mute);margin:0 0 8px'>" + esc(title) + "</h3>" +
+        table2(["Component", "Entries", "Best Å"], rows.map(function (r) {
+          return [r.name, commas(r.count),
+                  r.best_resolution ? Number(r.best_resolution).toFixed(2) : "—"];
+        }), [1, 2]) + "</div>";
+    }
+    $("crystalTables").innerHTML = '<div class="condgrid">' +
+      condTable("Precipitants", c.precipitants) +
+      condTable("Buffers", c.buffers) +
+      condTable("Methods", c.methods) +
+      condTable("Additives", c.additives) + "</div>";
+  }
+
+  function exportCrystals() {
+    var c = S.family.crystals || {};
+    var rows = [["pdb_id", "ph", "temp_c", "precipitant", "buffer", "resolution"]];
+    (c.points || []).forEach(function (p) {
+      rows.push([p.pdb_id, p.ph, p.temp_c == null ? "" : p.temp_c,
+                 p.precipitant, p.buffer || "", p.resolution == null ? "" : p.resolution]);
+    });
+    var csv = rows.map(function (r) {
+      return r.map(function (v) {
+        var s = String(v == null ? "" : v);
+        return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+      }).join(",");
+    }).join("\n");
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    a.download = CFG.slug + "-conditions.csv";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  function renderQuality() {
+    var q = S.family.quality || { n: 0, rows: [] };
+    if (!q.n) {
+      $("qualitySub").textContent = "no validation reports for this family";
+      $("qualityTable").innerHTML = '<p class="empty">Nothing to triage.</p>';
+      return;
+    }
+    $("qualitySub").innerHTML = commas(q.n) + " validated · " +
+      '<span class="verdict ok"></span>' + commas(q.ok) + " clean · " +
+      '<span class="verdict check"></span>' + commas(q.check) + " worth a look · " +
+      '<span class="verdict poor"></span>' + commas(q.poor) + " flagged twice or more · " +
+      commas(q.with_sf) + " with structure factors";
+
+    var rows = q.rows.map(function (r) {
+      var n = function (v, dp) {
+        return v == null ? "—" : Number(v).toFixed(dp === undefined ? 2 : dp);
+      };
+      return "<tr>" +
+        '<td class="n"><span class="verdict ' + r.verdict + '"></span>' +
+          '<a href="https://www.rcsb.org/structure/' + esc(r.pdb_id) +
+          '" target="_blank" rel="noopener noreferrer">' + esc(r.pdb_id) + "</a></td>" +
+        '<td class="n">' + n(r.resolution) + "</td>" +
+        '<td class="n">' + n(r.clashscore, 1) + "</td>" +
+        '<td class="n">' + n(r.rsrz, 1) + "</td>" +
+        '<td class="n">' + n(r.rama, 1) + "</td>" +
+        '<td class="n">' + n(r.rota, 1) + "</td>" +
+        '<td class="n">' + n(r.r_gap, 3) + "</td>" +
+        '<td class="n">' + n(r.completeness, 1) + "</td>" +
+        '<td class="n">' + (r.has_sf ? "yes" : "no") + "</td>" +
+        "<td>" + esc((r.flags || []).join(", ")) + "</td>" +
+        "</tr>";
+    }).join("");
+    $("qualityTable").innerHTML =
+      '<div class="tablewrap"><table class="ctable"><thead><tr>' +
+      "<th>Entry</th><th>Res Å</th><th>Clash</th><th>RSRZ %</th><th>Rama %</th>" +
+      "<th>Rota %</th><th>R gap</th><th>Compl %</th><th>SF</th><th>Flagged</th>" +
+      "</tr></thead><tbody>" + rows + "</tbody></table></div>" +
+      '<p class="caveat">Worst first. Thresholds are the wwPDB report&rsquo;s own: ' +
+      "clashscore over 20, RSRZ or rotamer outliers over 5&nbsp;%, Ramachandran outliers " +
+      "over 0.5&nbsp;%, R-free minus R-work over 0.07. Family medians: clashscore " +
+      (q.median_clashscore == null ? "—" : q.median_clashscore) + ", RSRZ " +
+      (q.median_rsrz == null ? "—" : q.median_rsrz) + "&nbsp;%, R gap " +
+      (q.median_r_gap == null ? "—" : q.median_r_gap) + ".</p>";
+  }
+
+  function wirePhase3() {
+    var lg = { lgAll: "all", lgReal: "real" };
+    Object.keys(lg).forEach(function (id) {
+      var b = $(id);
+      if (!b) return;
+      b.addEventListener("click", function () {
+        ligandFilter = lg[id];
+        Object.keys(lg).forEach(function (o) {
+          $(o).setAttribute("aria-pressed", o === id ? "true" : "false");
+        });
+        renderLigands();
+      });
+    });
+    var ex = $("expCrystals");
+    if (ex) ex.addEventListener("click", exportCrystals);
+  }
+
+  /* ==================================================================================
      11. Boot
      ================================================================================== */
   function paint(fam) {
@@ -1032,6 +1236,9 @@
     renderConstructs();
     renderDomains();
     renderOrthologues();
+    renderLigands();
+    renderCrystals();
+    renderQuality();
     renderKnownBlocks();
 
     recompute();
@@ -1070,6 +1277,7 @@
     wireView();
     wireRail();
     wireConstructFilters();
+    wirePhase3();
 
     $("cardClose").addEventListener("click", closeCard);
     $("scrim").addEventListener("click", closeCard);

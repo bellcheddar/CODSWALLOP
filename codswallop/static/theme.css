@@ -760,3 +760,20 @@ footer.site .sources { margin-top: 7px; }
 .omatrix td.n { font-family: var(--mono); color: var(--text); font-variant-numeric: tabular-nums; }
 .omatrix .bar { display: block; height: 6px; border-radius: 3px; background: var(--accent); min-width: 2px; }
 .omatrix .bartrack { background: var(--sky); border-radius: 3px; width: 110px; }
+
+/* ---- Phase 3 metadata panels ------------------------------------------------------- */
+.klass { display: inline-block; font-size: 10px; padding: 1px 7px; border-radius: 10px;
+  border: 1px solid var(--line); color: var(--mute); white-space: nowrap; }
+.klass.ligand   { border-color: var(--amber);  color: var(--amber); }
+.klass.cofactor { border-color: var(--mint);   color: var(--mint); }
+.klass.ion      { border-color: var(--cyan);   color: var(--cyan); }
+.smiles { font-family: var(--mono); font-size: 10.5px; color: var(--mute);
+  max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.verdict { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 7px; }
+.verdict.ok { background: var(--mint); }
+.verdict.check { background: var(--amber); }
+.verdict.poor { background: var(--oxide); }
+.caveat { font-size: 11.5px; color: var(--mute); margin: 10px 0 0; line-height: 1.6;
+  border-left: 2px solid var(--line); padding-left: 10px; }
+.scatterdot { cursor: pointer; }
+.condgrid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }

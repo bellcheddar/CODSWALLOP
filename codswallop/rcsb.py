@@ -28,7 +28,7 @@ _PAGE = 1000
 # consumes it fails silently: adding the alignment spans without bumping this left the
 # "residues in no construct" figure reading 100 % and the fusion count reading 0, both of
 # which look like plausible answers rather than missing inputs.
-PARSE_VERSION = 4
+PARSE_VERSION = 5
 
 
 def _paged_search(query: dict, return_type: str, limit: int, verbose: bool = False) -> tuple[list[dict], int]:
@@ -221,11 +221,18 @@ query($ids: [String!]!) {
         resolution_combined experimental_method polymer_entity_count
         deposited_polymer_entity_instance_count
       }
-      rcsb_accession_info { deposit_date initial_release_date }
+      rcsb_accession_info { deposit_date initial_release_date has_released_experimental_data }
       refine { ls_R_factor_R_work ls_R_factor_R_free ls_R_factor_obs ls_R_factor_all }
       symmetry { space_group_name_H_M }
       cell { length_a length_b length_c angle_alpha angle_beta angle_gamma }
       rcsb_entry_container_identifiers { assembly_ids }
+      exptl_crystal_grow { method pH temp pdbx_details }
+      pdbx_vrpt_summary_geometry {
+        clashscore percent_ramachandran_outliers percent_rotamer_outliers
+      }
+      pdbx_vrpt_summary_diffraction {
+        percent_RSRZ_outliers EDS_R data_completeness
+      }
       nonpolymer_entities { nonpolymer_comp { chem_comp { id name formula } } }
       citation {
         id title journal_abbrev year pdbx_database_id_DOI rcsb_authors
@@ -288,6 +295,51 @@ def _r_work(refine) -> Optional[float]:
         if value is not None:
             return value
     return None
+
+
+def _one(seq):
+    """First row of a repeatable mmCIF category. These come back as lists even when they only
+    ever have one row, and the validation summaries are lists too."""
+    if isinstance(seq, list):
+        return (seq[0] or {}) if seq else {}
+    return seq or {}
+
+
+def _crystal(grow) -> Optional[dict]:
+    """The crystallisation condition as deposited: structured fields plus the free text."""
+    g = _one(grow)
+    if not g:
+        return None
+    ph, temp = g.get("pH"), g.get("temp")
+    return {
+        "method": g.get("method"),
+        "ph": float(ph) if ph is not None else None,
+        # Kelvin as deposited. Converted for display, not here: a stored value that has
+        # silently been through a unit conversion is how two of them end up disagreeing.
+        "temp_k": float(temp) if temp is not None else None,
+        "details": g.get("pdbx_details"),
+    }
+
+
+def _validation(entry: dict) -> Optional[dict]:
+    """The wwPDB validation report's headline numbers.
+
+    Split across three sub-objects in the schema (`pdbx_vrpt_summary` itself holds almost
+    nothing useful: the geometry and diffraction summaries are where the figures live).
+    """
+    geo = _one(entry.get("pdbx_vrpt_summary_geometry"))
+    dif = _one(entry.get("pdbx_vrpt_summary_diffraction"))
+    if not geo and not dif:
+        return None
+    out = {
+        "clashscore": geo.get("clashscore"),
+        "rama_outliers": geo.get("percent_ramachandran_outliers"),
+        "rota_outliers": geo.get("percent_rotamer_outliers"),
+        "rsrz_outliers": dif.get("percent_RSRZ_outliers"),
+        "eds_r": dif.get("EDS_R"),
+        "completeness": dif.get("data_completeness"),
+    }
+    return out if any(v is not None for v in out.values()) else None
 
 
 def parse_entity(raw: dict) -> dict:
@@ -398,5 +450,9 @@ def parse_entity(raw: dict) -> dict:
             "assembly_count": len((entry.get("rcsb_entry_container_identifiers") or {}).get("assembly_ids") or []),
             "ligands": ligands,
             "citation": citation,
+            "crystal": _crystal(entry.get("exptl_crystal_grow")),
+            "validation": _validation(entry),
+            "has_sf": (entry.get("rcsb_accession_info") or {}).get(
+                "has_released_experimental_data") == "Y",
         },
     }

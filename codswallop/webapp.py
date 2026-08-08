@@ -45,17 +45,7 @@ SECTIONS = [
             "it finds (apo vs holo, open vs closed) become first-class filters",
         ],
     },
-    {
-        "id": "ligands", "label": "Ligands", "phase": 3, "known": "ligands",
-        "blurb": "Every chemical component in the family, and an honest verdict on which of "
-                 "them anyone meant to be there.",
-        "bullets": [
-            "CCD ID, formula, SMILES, 2D depiction and occurrence count",
-            "Explicit <b>ligand vs cryoprotectant vs buffer vs ion</b> classification: PEG, "
-            "glycerol, sulphate, Tris, MES, MPD and cacodylate flagged and separable",
-            "Cross-references to ChEMBL and DrugBank where they exist",
-        ],
-    },
+        {"id": "ligands", "label": "Ligands", "phase": 3, "live": True},
     {
         "id": "contacts", "label": "Contacts", "phase": 3,
         "blurb": "PLIP run family-wide, so binding-site contacts are comparable across "
@@ -67,26 +57,8 @@ SECTIONS = [
             "Runs as a background job with progressive fill: the map never waits for PLIP",
         ],
     },
-    {
-        "id": "crystals", "label": "Crystals", "phase": 3, "known": "crystals",
-        "blurb": "What actually worked, parsed out of <code>_exptl_crystal_grow</code> across "
-                 "the whole family.",
-        "bullets": [
-            "Structured precipitant, salt, buffer, pH, temperature, method and additives",
-            "pH against precipitant class, coloured by resolution",
-            "A &ldquo;what worked&rdquo; summary table, exported in a shape the Top96 "
-            "crystallisation predictor can ingest",
-        ],
-    },
-    {
-        "id": "quality", "label": "Quality", "phase": 3, "known": "quality",
-        "blurb": "A blunt traffic-light triage of which entries to trust.",
-        "bullets": [
-            "Clashscore, RSRZ outliers, Ramachandran and rotamer outliers",
-            "R-free minus R-work gap",
-            "EDS, structure-factor and raw-data availability",
-        ],
-    },
+        {"id": "crystals", "label": "Crystals", "phase": 3, "live": True},
+        {"id": "quality", "label": "Quality", "phase": 3, "live": True},
     {
         "id": "topology", "label": "Topology", "phase": 4,
         "blurb": "Fold cartoons generated in-house, plus everything needed to hand the "

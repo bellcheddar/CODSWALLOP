@@ -195,6 +195,53 @@
       </div>
     </section>
 
+    {# ================================ LIGANDS (phase 3) =========================== #}
+    <section id="sec-ligands" class="section" role="tabpanel" hidden>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Chemical components</h2>
+          <span class="sub" id="ligandSub"></span>
+          <div class="seg" role="group" aria-label="Filter components">
+            <button type="button" id="lgAll" aria-pressed="false">All</button>
+            <button type="button" id="lgReal" aria-pressed="true">Designed only</button>
+          </div>
+        </div>
+        <div class="panel-body"><div id="ligandTable"></div></div>
+      </div>
+    </section>
+
+    {# ================================ CRYSTALS (phase 3) ========================== #}
+    <section id="sec-crystals" class="section" role="tabpanel" hidden>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>What actually worked</h2>
+          <span class="sub" id="crystalSub"></span>
+          <button class="btn ghost" type="button" id="expCrystals">Export for TopPDBLX</button>
+        </div>
+        <div class="covwrap">
+          <svg id="crystalScatter" role="img" style="width:100%;height:280px"
+               aria-label="Crystallisation pH against precipitant, coloured by resolution"></svg>
+          <div class="covlegend" id="crystalLegend"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h2>Conditions</h2>
+          <span class="sub">Best resolution achieved with each, across the family</span></div>
+        <div class="panel-body"><div id="crystalTables"></div></div>
+      </div>
+    </section>
+
+    {# ================================ QUALITY (phase 3) =========================== #}
+    <section id="sec-quality" class="section" role="tabpanel" hidden>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Which entries to trust</h2>
+          <span class="sub" id="qualitySub"></span>
+        </div>
+        <div class="panel-body"><div id="qualityTable"></div></div>
+      </div>
+    </section>
+
     {# ============================ PHASES STILL TO LAND ============================= #}
     {% for s in sections if s.phase > 1 and not s.live %}
     <section id="sec-{{ s.id }}" class="section" role="tabpanel" hidden>
