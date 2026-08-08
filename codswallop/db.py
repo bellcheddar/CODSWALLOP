@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS family (
     identity_threshold INTEGER NOT NULL,
     total_hits         INTEGER,            -- hits the search reported, before the cap
     truncated          INTEGER NOT NULL DEFAULT 0,
+    parse_version      INTEGER,            -- rcsb.PARSE_VERSION this row was built with
     built_at           INTEGER NOT NULL
 );
 
@@ -158,6 +159,7 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("entity", "uniprot_ids", "TEXT"),
     ("entry", "crystal", "TEXT"),
     ("entry", "assembly", "TEXT"),
+    ("family", "parse_version", "INTEGER"),
     ("entry", "validation", "TEXT"),
     ("entry", "has_sf", "INTEGER"),
 ]
@@ -233,11 +235,31 @@ def cached(key_parts: tuple, fetch, ttl_hours: Optional[int] = None) -> Any:
 # Families
 # --------------------------------------------------------------------------------------
 def family_fresh(slug: str, ttl_hours: Optional[int] = None) -> bool:
+    """Is the stored family both recent enough and built by the current parser?
+
+    The parse version check is the second half, and it was missing. `rcsb.PARSE_VERSION` is
+    part of every *HTTP* cache key, so bumping it re-fetches and re-parses from the API, but
+    the `family`/`entry`/`entity` tables are a second cache downstream of that one, and a
+    bump never reached them. Adding the assembly fields therefore left every already-filed
+    family reporting no biological assembly at all: the panel rendered, said "no assembly
+    annotation for this family", and looked like a property of the data rather than a stale
+    row. A family built by an older parser is not fresh, however recently it was written.
+    """
     ttl = config.FAMILY_TTL_HOURS if ttl_hours is None else ttl_hours
-    row = connect().execute("SELECT built_at FROM family WHERE slug = ?", (slug,)).fetchone()
+    row = connect().execute(
+        "SELECT built_at, parse_version FROM family WHERE slug = ?", (slug,)).fetchone()
     if row is None:
         return False
+    from . import rcsb
+    if (row["parse_version"] or 0) != rcsb.PARSE_VERSION:
+        return False
     return not ttl or (time.time() - row["built_at"]) <= ttl * 3600
+
+
+def _rcsb_parse_version() -> int:
+    """Imported lazily: rcsb imports db, so a module-level import would be circular."""
+    from . import rcsb
+    return rcsb.PARSE_VERSION
 
 
 def save_family(fam: dict, entries: list[dict], entities: list[dict]) -> None:
@@ -253,17 +275,21 @@ def save_family(fam: dict, entries: list[dict], entities: list[dict]) -> None:
         conn.execute("DELETE FROM entity WHERE slug = ?", (slug,))
         conn.execute(
             "INSERT INTO family(slug, query, kind, seed, name, organism, seed_sequence, "
-            "  seed_length, pfam, interpro, identity_threshold, total_hits, truncated, built_at) "
+            "  seed_length, pfam, interpro, identity_threshold, total_hits, truncated, "
+            "  parse_version, built_at) "
             "VALUES (:slug, :query, :kind, :seed, :name, :organism, :seed_sequence, "
-            "  :seed_length, :pfam, :interpro, :identity_threshold, :total_hits, :truncated, :built_at) "
+            "  :seed_length, :pfam, :interpro, :identity_threshold, :total_hits, :truncated, "
+            "  :parse_version, :built_at) "
             "ON CONFLICT(slug) DO UPDATE SET "
             "  query=excluded.query, kind=excluded.kind, seed=excluded.seed, name=excluded.name, "
             "  organism=excluded.organism, seed_sequence=excluded.seed_sequence, "
             "  seed_length=excluded.seed_length, pfam=excluded.pfam, interpro=excluded.interpro, "
             "  identity_threshold=excluded.identity_threshold, total_hits=excluded.total_hits, "
-            "  truncated=excluded.truncated, built_at=excluded.built_at",
+            "  truncated=excluded.truncated, parse_version=excluded.parse_version, "
+            "  built_at=excluded.built_at",
             {
                 "slug": slug,
+                "parse_version": _rcsb_parse_version(),
                 "query": fam["query"],
                 "kind": fam["kind"],
                 "seed": fam.get("seed"),

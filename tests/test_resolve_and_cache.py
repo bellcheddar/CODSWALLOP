@@ -126,3 +126,25 @@ def test_recording_a_request_never_breaks_the_page(monkeypatch):
     from codswallop import db
     monkeypatch.setattr(db, "connect", lambda: (_ for _ in ()).throw(db.sqlite3.Error("nope")))
     db.request_artefact("x", "y", "both")      # must not raise
+
+
+def test_a_family_built_by_an_older_parser_is_not_fresh(tmp_path, monkeypatch):
+    """PARSE_VERSION is part of every HTTP cache key, so bumping it re-fetches and re-parses
+    from the API. But family/entry/entity are a second cache downstream of that one, and the
+    bump never reached them: adding the assembly fields left every already-filed family
+    reporting no biological assembly at all. The panel rendered, said "no assembly
+    annotation for this family", and looked like a property of the data rather than a stale
+    row. A warm then "refreshed" all 32 families without rebuilding one of them."""
+    from codswallop import config, db, rcsb
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "pv.db")
+    monkeypatch.setattr(db._local, "conn", None, raising=False)
+    db.init()
+    fam = {"slug": "x", "query": "P1", "kind": "uniprot", "seed": "P1", "name": "X",
+           "organism": "o", "seed_sequence": "AAA", "seed_length": 3, "pfam": [],
+           "interpro": [], "identity_threshold": 30, "total_hits": 1, "truncated": False}
+    db.save_family(fam, [], [])
+    assert db.family_fresh("x") is True
+
+    monkeypatch.setattr(rcsb, "PARSE_VERSION", rcsb.PARSE_VERSION + 1)
+    assert db.family_fresh("x") is False, \
+        "a family built by an older parser is stale however recently it was written"
