@@ -1,6 +1,6 @@
 # 🗄️ CODSWALLOP
 
-> **The whole family, filed: every PDB entry for a protein family, cross-referenced in ninety seconds.**
+> **The PDB, summarised: every entry for a protein family, cross-referenced in ninety seconds.**
 
 ![python](https://img.shields.io/badge/python-3.11-3776AB?logo=python&logoColor=white) ![flask](https://img.shields.io/badge/flask-3.0-000000?logo=flask&logoColor=white) ![phase](https://img.shields.io/badge/phase-2%20of%204-fcb900) ![licence](https://img.shields.io/badge/licence-MIT-467FF7) ![author](https://img.shields.io/badge/author-Marc%20C.%20Deller%2C%20D.Phil.-1C244B)
 
@@ -16,9 +16,9 @@
 
 **C**omparative **O**verview of **D**omains, **S**tructures, **W**hole-families, **A**lignments, **L**igands, **L**ineages, **O**rganisms & **P**DB entries.
 
-A structural biologist has just been handed a protein family and told to get up to speed. CODSWALLOP does the fortnight of manual PDB trawling in ninety seconds: every entry, every construct, every ligand, every crystallisation condition, cross-referenced and interactive.
+A structural biologist has just been handed a protein family and told to get up to speed. CODSWALLOP does an afternoon's work of manual PDB trawling in ninety seconds: every entry, every construct, every ligand, every crystallisation condition, cross-referenced and interactive.
 
-**Why it matters:** the RCSB and PDBe landing pages are entry-centric. They answer "what is 4XYZ?" very well, and nobody answers the question a working structural biologist actually asks, which is "what do the 87 structures of this family collectively tell me, and what should I do differently?". CODSWALLOP is family-centric: it treats the family as the unit of analysis, so the answer to "which construct crystallises best" or "which residues has nobody ever put in a construct" is one glance rather than a fortnight of tab-juggling. It is useful for: starting a new target, designing a construct, choosing which deposited structure to trust, planning a crystallisation screen, and writing the structural-biology section of a grant.
+**Why it matters:** the RCSB and PDBe landing pages are entry-centric. They answer "what is 4XYZ?" very well, and nobody answers the question a working structural biologist actually asks, which is "what do the 87 structures of this family collectively tell me, and what should I do differently?". CODSWALLOP is family-centric: it treats the family as the unit of analysis, so the answer to "which construct crystallises best" or "which residues has nobody ever put in a construct" is one glance rather than an afternoon of tab-juggling. It is useful for: starting a new target, designing a construct, choosing which deposited structure to trust, planning a crystallisation screen, and writing the structural-biology section of a grant.
 
 Live at **[codswallop.mdeller.com](https://codswallop.mdeller.com)**.
 

@@ -21,6 +21,21 @@ fi
 SSH_OPTS=()
 [[ -n "$SSH_KEY" ]] && SSH_OPTS=(-e "ssh -i ${SSH_KEY/#\~/$HOME}")
 
+# A pipeline version bump invalidates every artefact built before it, and the reader sees
+# that as the map silently reverting to the placeholder and superposition refusing to run.
+# Deploying the bump BEFORE rebuilding is how that reaches the live site, so say so here
+# rather than letting it be discovered by looking at the page.
+if [[ -x .venv/bin/python ]]; then
+  stale=$(.venv/bin/python CODSWALLOP.py artefacts --missing 2>/dev/null \
+          | grep -c "MISSING" || true)
+  if [[ "${stale:-0}" -gt 0 ]]; then
+    echo "WARNING: ${stale} local famil$([[ $stale -eq 1 ]] && echo y || echo ies) have an"
+    echo "         out-of-date embedding. Deploying now puts them on the placeholder map"
+    echo "         until you run:  python CODSWALLOP.py warm  &&  bash deploy/push_embeddings.sh"
+    echo
+  fi
+fi
+
 echo "==> Syncing code to ${DROPLET_SSH}:${DROPLET_PATH}"
 # ${arr[@]+"${arr[@]}"} expands to nothing when empty without tripping `set -u` (needed for
 # macOS's bash 3.2, where "${arr[@]}" on an empty array is an error).

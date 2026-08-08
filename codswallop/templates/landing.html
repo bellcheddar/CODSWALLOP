@@ -6,7 +6,7 @@
   <div class="drawer-face">
     <span class="plate">Codswallop</span>
 
-    <h1>The whole family, filed.</h1>
+    <h1>The PDB, summarised&hellip;</h1>
 
     <p class="expand">
       <b>C</b>omparative <b>O</b>verview of <b>D</b>omains, <b>S</b>tructures,
@@ -15,8 +15,8 @@
     </p>
 
     <p class="lede">
-      Hand it a protein and it does the fortnight of manual PDB trawling in ninety seconds:
-      every entry, every construct, every ligand, cross-referenced and interactive.
+      Hand it a protein and it does an afternoon&rsquo;s work of manual PDB trawling in ninety
+      seconds: every entry, every construct, every ligand, cross-referenced and interactive.
     </p>
 
     <form class="searchrow" action="{{ url_for('lookup') }}" method="get" role="search">
@@ -24,7 +24,7 @@
       <input id="q" name="q" type="text" autocomplete="off" autofocus
              placeholder="PDB ID, UniProt accession, gene, Pfam, sequence or name"
              value="{{ query or '' }}">
-      <button class="btn" type="submit">Open the drawer</button>
+      <button class="btn" type="submit">Go!</button>
     </form>
 
     <p class="hints">
