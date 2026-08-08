@@ -214,6 +214,29 @@
       </div>
     </section>
 
+    {# =============================== STRUCTURES (phase 3) ========================= #}
+    <section id="sec-structures" class="section" role="tabpanel" hidden>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Structure viewer</h2>
+          <span class="sub" id="structureSub"></span>
+          <select id="structurePick" class="picker" aria-label="Which entry to show"></select>
+        </div>
+        <div class="panel-body">
+          <div class="vhost" id="structureHost">
+            <p class="vstatus">Pick an entry, or press Show, to load the viewer.</p>
+          </div>
+          <p class="caveat">
+            Mol&#42; is fetched on demand (5&nbsp;MB, once per visit) and reads the structure
+            straight from the RCSB, so nothing is downloaded or stored by this server.
+            <b>Family superposition, an AlphaFold overlay and the pairwise TM-score matrix
+            are not here yet</b>: those need a local structural pipeline rather than a
+            browser, and the map's layout stays a placeholder until the matrix exists.
+          </p>
+        </div>
+      </div>
+    </section>
+
     {# ================================ LIGANDS (phase 3) =========================== #}
     <section id="sec-ligands" class="section" role="tabpanel" hidden>
       <div class="panel">
@@ -324,6 +347,7 @@
     family: {{ family|tojson if family else 'null' }}
   };
 </script>
+<script src="{{ asset('viewer.js') }}"></script>
 <script src="{{ asset('map.js') }}"></script>
 <script src="{{ asset('family.js') }}"></script>
 {% endblock %}

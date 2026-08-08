@@ -34,17 +34,7 @@ SECTIONS = [
     {"id": "sequences", "label": "Sequences", "phase": 2, "live": True},
     {"id": "constructs", "label": "Constructs", "phase": 2, "live": True},
     {"id": "domains", "label": "Domains", "phase": 2, "live": True},
-    {
-        "id": "structures", "label": "Structures", "phase": 3, "known": "methods",
-        "blurb": "See it, superpose it, and make the hero map mean what it says.",
-        "bullets": [
-            "<b>Mol*</b> viewer, single entry and family superposition",
-            "Colour by entry or by conservation; AlphaFold overlay with pLDDT colouring",
-            "<b>Pairwise TM-score matrix</b> as a clustered heatmap with a dendrogram",
-            "The map's node positions move to a real structural embedding, and the clusters "
-            "it finds (apo vs holo, open vs closed) become first-class filters",
-        ],
-    },
+        {"id": "structures", "label": "Structures", "phase": 3, "live": True},
         {"id": "ligands", "label": "Ligands", "phase": 3, "live": True},
     {
         "id": "contacts", "label": "Contacts", "phase": 3,

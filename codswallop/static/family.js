@@ -413,6 +413,11 @@
         ' aa)</h3><div class="seqbox">' + esc(seq) + "</div></div>";
     }
 
+    html += '<div class="csect"><h3>Structure</h3>' +
+      '<button class="btn ghost" type="button" id="cardShow3D">Show ' + esc(m.pdb_id) +
+      ' in 3D</button>' +
+      '<div class="vhost card" id="cardViewer" hidden></div></div>';
+
     html += '<div class="outlinks">' +
       '<a href="https://www.rcsb.org/structure/' + encodeURIComponent(m.pdb_id) +
         '" target="_blank" rel="noopener noreferrer">RCSB</a>' +
@@ -425,6 +430,18 @@
       "</div>";
 
     $("cardBody").innerHTML = html;
+    // On demand, not on open: a reader flicking through entries should not pull 5 MB per card.
+    var show3d = $("cardShow3D");
+    if (show3d) {
+      show3d.addEventListener("click", function () {
+        var host = $("cardViewer");
+        host.hidden = false;
+        show3d.disabled = true;
+        window.CodswallopViewer.show(host, m.pdb_id).catch(function () {
+          show3d.disabled = false;
+        });
+      });
+    }
     $("indexCard").hidden = false;
     // One frame before adding the class, so the transform transition actually runs rather
     // than being skipped as part of the same style recalculation that unhides the panel.
@@ -720,6 +737,14 @@
         document.querySelectorAll(".section").forEach(function (sec) {
           sec.hidden = sec.id !== "sec-" + id;
         });
+        if (id === "structures") {
+          var pick = $("structurePick");
+          // Only once: re-entering the section must not reload 5 MB or reset the camera.
+          if (pick && pick.value && !$("structureHost").dataset.loaded) {
+            $("structureHost").dataset.loaded = "1";
+            loadStructure(pick.value);
+          }
+        }
         if (id === "overview" && constellation) {
           requestAnimationFrame(function () { constellation.resize(); constellation.draw(); });
         }
@@ -1341,6 +1366,31 @@
       "<th>Logo</th></tr></thead><tbody>" + rows + "</tbody></table></div>";
   }
 
+  /* ---- the Structures panel ------------------------------------------------------- */
+  function renderStructures() {
+    var pick = $("structurePick");
+    if (!pick) return;
+    // Best resolution first: the entry someone should look at before any other.
+    var shown = S.members.filter(function (m) { return S.visible.has(m.entity_id); })
+                         .slice(0, 300);
+    $("structureSub").textContent = shown.length
+      ? "best-resolution entries first" : "nothing passes the current filters";
+    pick.innerHTML = shown.map(function (m) {
+      return '<option value="' + esc(m.pdb_id) + '">' + esc(m.pdb_id) +
+        (m.resolution ? " · " + Number(m.resolution).toFixed(2) + " Å" : " · " + esc(m.method)) +
+        " · " + esc((m.description || "").slice(0, 40)) + "</option>";
+    }).join("");
+    if (!pick.dataset.wired) {
+      pick.dataset.wired = "1";
+      pick.addEventListener("change", function () { loadStructure(pick.value); });
+    }
+  }
+
+  function loadStructure(pdbId) {
+    if (!pdbId) return;
+    window.CodswallopViewer.show($("structureHost"), pdbId);
+  }
+
   /* ==================================================================================
      11. Boot
      ================================================================================== */
@@ -1376,6 +1426,11 @@
 
     subscribe(function () {
       renderList();
+      // Here rather than in the pre-render block above: S.visible is empty until
+      // recompute() runs, so rendering the picker earlier produced an empty <select> and
+      // the Structures panel silently never loaded anything. It also has to follow the
+      // filters, which is the same reason.
+      renderStructures();
       if (constellation) constellation.applyVisible(S.visible);
       if (table) table.replaceData(tableData());
       $("filterSum").innerHTML = "<b>" + commas(S.visible.size) + "</b> of " +
