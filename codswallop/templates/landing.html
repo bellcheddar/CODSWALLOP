@@ -41,7 +41,7 @@
 
     {% if recent %}
     <div class="recent">
-      <h2>Recently filed</h2>
+      <h2>Recent searches</h2>
       <ul>
         {% for r in recent %}
         <li><a href="{{ url_for('family_page', slug=r.slug) }}">{{ r.name or r.slug }}
