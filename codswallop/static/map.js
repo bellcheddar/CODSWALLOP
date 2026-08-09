@@ -52,23 +52,78 @@
     return Math.max(0.34, Math.sqrt(250 / n));
   }
 
+  /* How big to draw a node that stands for `count` entries.
+
+     Area, not radius, would be the textbook answer and is wrong here: size already means
+     resolution on this map, and a stack of 486 drawn to area would be 22 times the width of
+     a single structure and swallow its neighbours. The cube-rootish exponent and the hard
+     cap keep a crowded point obviously crowded while leaving the resolution reading intact
+     within a factor of three. */
+  function stackScale(count, stackMax) {
+    if (count <= 1) return 1;
+    return Math.min(3.2, Math.max(1, Math.pow(count / stackMax, 0.3)));
+  }
+
+  /* Fitting the panel to the family without letting one structure decide the scale.
+
+     A family can contain the same protein in a different fold. Hen lysozyme's 9J0L and 9J0M
+     are cryo-EM amyloid fibrils: 100 % identical in sequence to the seed and TM 0.15-0.20 to
+     all 76 other representatives, none of them above the 0.5 same-fold line. They sit at
+     x = -1.0 while every other representative spans -0.036 to +0.046, so fitting to the
+     furthest point left 1,686 of 1,688 nodes inside 5.4 % of the panel width.
+
+     So the extent is a high quantile with generous headroom rather than the maximum, and
+     anything beyond it is pinned to the rim and marked instead of setting the scale. The
+     headroom is what stops this firing on an ordinary tail: it takes a point more than twice
+     the 97th percentile to count as off-scale at all, and the robust extent is only adopted
+     when it actually buys a materially better fit. Measured over all 68 built families:
+     25 pin anything, 38 points in the whole archive, and the four lysozyme families gain
+     between 12.6x and 17.2x. */
+  var FIT_QUANTILE = 0.97;
+  var FIT_HEADROOM = 2.0;
+  var FIT_MIN_GAIN = 1.25;
+  // A point has to clear the fitted extent by this much before it is called off-scale, so a
+  // structure sitting essentially on the rim is not flagged as an outlier it is not.
+  var FIT_OVERFLOW = 1.05;
+
+  function robustExtent(values) {
+    if (!values.length) return 0;
+    var sorted = values.slice().sort(function (a, b) { return a - b; });
+    var max = sorted[sorted.length - 1];
+    var q = sorted[Math.floor(FIT_QUANTILE * (sorted.length - 1))] * FIT_HEADROOM;
+    return (q > 0 && max / q >= FIT_MIN_GAIN) ? q : max;
+  }
+
   function Constellation(svg, opts) {
     this.svg = svg;
     this.opts = opts || {};
     this.nodesById = {};
+    // One entry per drawn element, each carrying every entity id it stands for. The filters
+    // and the cross-highlight both work through this, because a drawn node is no longer
+    // one-to-one with an entity once crowded points collapse.
+    this.rendered = [];
+    // Which stacks the reader has opened. Kept on the instance so a resize, which redraws,
+    // does not silently close them again.
+    this.expanded = {};
     this.hot = null;
     this._size = { w: 0, h: 0 };
 
     var self = this;
     // The field is sized by CSS; the SVG has to follow it, and follow it again when the
     // reader turns their phone.
+    // Observes the SVG, not its container. The container also holds the field note, which
+    // on a phone sits below the map and is part of that box: sizing the drawing to it made
+    // the map taller by exactly the height of the caption describing it, every redraw.
     this._ro = new ResizeObserver(function () { self.resize(); });
-    this._ro.observe(svg.parentNode);
+    this._ro.observe(svg);
   }
 
   Constellation.prototype.render = function (map, members) {
     this.map = map;
     this.byId = {};
+    // A new family is a new set of stacks: keeping the old open set would open whichever
+    // points happened to share a key with the last one.
+    this.expanded = {};
     members.forEach(function (m) { this.byId[m.entity_id] = m; }, this);
     this.draw();
   };
@@ -94,17 +149,51 @@
     };
   };
 
+  /* Project, then hold the result inside the panel.
+
+     Two jobs at once. A structure the fit deliberately left off the end of the scale is
+     pinned to the rim rather than drawn outside the panel or allowed to set the scale; and a
+     rotation, which moves points the fit never measured in that direction, can no longer
+     push anything off the edge either. The vector from the centre is scaled down whole, so a
+     pinned node keeps its bearing: which way it lies is the part that still means something,
+     and it is the part a reader would look for. */
+  Constellation.prototype.place = function (project, n) {
+    var f = this._frame;
+    var p = project(n);
+    var dx = p.x - f.cx, dy = p.y - f.cy;
+    var over = Math.max(Math.abs(dx) / f.limX, Math.abs(dy) / f.limY);
+    if (over > 1) { dx /= over; dy /= over; }
+    return { x: f.cx + dx, y: f.cy + dy, z: p.z };
+  };
+
   /** Move every node to its current projection. No DOM is created or destroyed. */
   Constellation.prototype.reproject = function () {
     var self = this;
     if (!this.map || !this._frame) return;
     var project = this.projector();
-    this.map.nodes.forEach(function (n) {
-      var g = self.nodesById[n.id];
-      if (!g) return;
-      var p = project(n);
-      g.setAttribute("transform", "translate(" + p.x.toFixed(2) + "," + p.y.toFixed(2) + ")");
-      if (n.z != null) g.style.setProperty("--depth", depthOpacity(p.z));
+    // Over the drawn elements, not over `map.nodes`: a collapsed stack has one element and
+    // many nodes, so walking the nodes would move it once per member it holds and leave it
+    // wherever the last of them happened to land.
+    this.rendered.forEach(function (item) {
+      var n = item.n;
+      if (!n) return;
+      var p = self.place(project, n);
+      item.g.setAttribute("transform",
+        "translate(" + p.x.toFixed(2) + "," + p.y.toFixed(2) + ")");
+      if (n.z != null) item.g.style.setProperty("--depth", depthOpacity(p.z));
+      // The off-scale chevron points outward from the centre, so a rotation that moves the
+      // node has to re-aim it or it ends up pointing back into the field.
+      if (item.mark) {
+        var bearing = Math.atan2(p.y - self._frame.cy, p.x - self._frame.cx) * 180 / Math.PI;
+        item.mark.setAttribute("transform", "rotate(" + bearing.toFixed(1)
+          + ") translate(" + (item.r + 3.2).toFixed(1) + ",0)");
+      }
+    });
+    // The cluster names ride along, or they name whatever has rotated under them.
+    (this._labels || []).forEach(function (lab) {
+      var p = self.place(project, lab.c);
+      lab.el.setAttribute("x", p.x.toFixed(2));
+      lab.el.setAttribute("y", p.y.toFixed(2));
     });
     // The edges are between representatives and have to follow the same rotation, or they
     // detach from the nodes they connect.
@@ -121,7 +210,7 @@
   };
 
   Constellation.prototype.resize = function () {
-    var box = this.svg.parentNode.getBoundingClientRect();
+    var box = this.svg.getBoundingClientRect();
     if (!box.width || !box.height) return;
     if (Math.abs(box.width - this._size.w) < 2 && Math.abs(box.height - this._size.h) < 2) return;
     this._size = { w: box.width, h: box.height };
@@ -132,14 +221,56 @@
     var svg = this.svg, map = this.map, self = this;
     if (!map) return;
 
-    var box = svg.parentNode.getBoundingClientRect();
+    var box = svg.getBoundingClientRect();
     var w = this._size.w || box.width || 600;
     var h = this._size.h || box.height || 460;
     // Reserve the strip along the bottom for the note, and keep the disc centred in what is
     // left rather than in the whole panel. Without this the largest cluster's label, printed
     // out past the rim at the six o'clock position, lands on top of the note.
-    var NOTE_H = 62;
+    //
+    // Measured, not assumed. This was a fixed 62px, which is two lines: any note longer than
+    // that overlapped the field anyway, and on a phone the note is taken out of the overlay
+    // entirely by CSS and sits below the map, where reserving anything for it wastes a
+    // sixth of a short panel. Reading the element's computed position answers both without
+    // the breakpoint having to be repeated here in JavaScript.
+    var noteEl = svg.parentNode.querySelector(".fieldnote");
+    var NOTE_H = 0;
+    if (noteEl && getComputedStyle(noteEl).position === "absolute") {
+      NOTE_H = Math.min(0.34 * h, noteEl.offsetHeight + 14);
+    }
     var cx = w / 2, cy = (h - NOTE_H) / 2 + 4;
+
+    /* Which points are crowded enough to draw as one node.
+
+       Members of a family that share a construct share an MDS coordinate exactly, and the
+       layout fans them around it. Past a dozen that fan is a sunflower packing whose spiral
+       arms read as structure that is not there, so a crowded point is drawn once, scaled by
+       how many entries it holds, and opens on click. */
+    var stackMax = map.stack_max || 0;
+    var byStack = {};
+    if (stackMax) {
+      map.nodes.forEach(function (n) {
+        if (n.stack == null) return;
+        (byStack[n.stack] || (byStack[n.stack] = [])).push(n);
+      });
+    }
+
+    var toDraw = [];
+    map.nodes.forEach(function (n) {
+      var group = n.stack != null ? byStack[n.stack] : null;
+      if (!group || group.length <= stackMax || self.expanded[n.stack]) {
+        toDraw.push({ n: n, ids: [n.id], count: 1 });
+        return;
+      }
+      // One member stands for the group. `si` 0 is the one the layout placed at the
+      // representative's own coordinate, with no fan offset, so the stack sits where the
+      // measurement actually is.
+      if (n.si !== 0) return;
+      toDraw.push({
+        n: n, count: group.length,
+        ids: group.map(function (o) { return o.id; })
+      });
+    });
 
     // Fit the panel to the data rather than to the -1..1 box the coordinates are declared
     // in. A real MDS embedding almost never fills that box: a tight family occupies a
@@ -153,15 +284,29 @@
     // min(availW, availH) against the larger extent instead is over-conservative on data
     // that is not square: carbonic anhydrase spans 0.89 wide by 0.52 tall, and fitting the
     // height against the width's extent left the family using 43 % of the panel.
-    var extX = 0, extY = 0;
-    map.nodes.forEach(function (n) {
-      extX = Math.max(extX, Math.abs(n.x || 0));
-      extY = Math.max(extY, Math.abs(n.y || 0));
-    });
+    //
+    // Measured over the points actually drawn rather than over every entity, so that a
+    // construct solved four hundred times counts once. Weighting by entity count would let
+    // one popular construct decide where the 97th percentile falls.
+    var extX = robustExtent(toDraw.map(function (t) { return Math.abs(t.n.x || 0); }));
+    var extY = robustExtent(toDraw.map(function (t) { return Math.abs(t.n.y || 0); }));
     // A single node, or every node stacked, has no extent to fit: fall back rather than
     // dividing by zero and scaling to infinity.
     var scale = Math.min(extX > 1e-6 ? availW / extX : availW,
                          extY > 1e-6 ? availH / extY : availH);
+
+    // Which structures the fit has deliberately left off the end of the scale. Decided in
+    // data space, not from the projected position, so that it is a property of the structure
+    // and not of how far the reader has currently rotated the field.
+    var offscale = 0;
+    toDraw.forEach(function (t) {
+      var ox = extX > 1e-6 ? Math.abs(t.n.x || 0) / extX : 0;
+      var oy = extY > 1e-6 ? Math.abs(t.n.y || 0) / extY : 0;
+      t.outBy = Math.max(ox, oy);
+      t.offscale = t.outBy > FIT_OVERFLOW;
+      if (t.offscale) offscale++;
+    });
+    this.offscale = offscale;
 
     svg.setAttribute("viewBox", "0 0 " + w + " " + h);
     while (svg.firstChild) svg.removeChild(svg.firstChild);
@@ -174,7 +319,7 @@
     // projector without redrawing. The trig has to be recomputed per rotation rather than
     // captured here: closing over it once meant every later projection used the angles from
     // the last full draw, so dragging updated `yaw` and moved nothing.
-    self._frame = { cx: cx, cy: cy, scale: scale };
+    self._frame = { cx: cx, cy: cy, scale: scale, limX: availW, limY: availH };
     var project = self.projector();
     var X = function (x) { return cx + x * scale; };
     var Y = function (y) { return cy + y * scale; };
@@ -203,11 +348,16 @@
     // field losing its legibility. The nodes are all still there, and hovering names them.
     var gLabels = el("g", { "class": "clusterlabels" });
     var placed = [];
+    // Projected, not merely scaled. On the embedded map a label names a group of nodes that
+    // rotates with the rest of the field; positioning it with X()/Y() alone left the names
+    // pinned to the panel while the clumps they name slid out from under them.
+    self._labels = [];
     var bySize = (map.clusters || []).slice().sort(function (a, b) { return b.count - a.count; });
 
     bySize.forEach(function (c) {
       if (!c.count) return;
-      var x = X(c.x), y = Y(c.y);
+      var pl = self.place(project, c);
+      var x = pl.x, y = pl.y;
       // Keep the label inside the box: a sector pointing at the edge would otherwise print
       // its name off-canvas.
       var anchor = x < w * 0.32 ? "start" : (x > w * 0.68 ? "end" : "middle");
@@ -232,6 +382,7 @@
       var t = el("text", { "class": "clusterlabel", x: tx, y: ty, "text-anchor": anchor });
       t.textContent = text;
       gLabels.appendChild(t);
+      self._labels.push({ el: t, c: c });
     });
     svg.appendChild(gLabels);
 
@@ -239,21 +390,80 @@
     var gNodes = el("g", { "class": "nodes" });
     this.nodesById = {};
 
+
+    this.rendered = [];
+
     // NB: named nodeScale, not scale. `scale` above is the coordinate scale that X() and
     // Y() close over, and reassigning it here collapsed every node onto the centre point
     // while leaving the edges and labels correctly placed.
-    var nodeScale = densityScale(map.nodes.length);
+    //
+    // Measured against what is actually painted, not against the family's entity count.
+    // Those were the same number until crowded points started collapsing; afterwards ABL1
+    // was still being shrunk as though it were drawing 2,000 nodes while it drew 144, so
+    // every node came out a third of the size it should be and the field looked empty.
+    var nodeScale = densityScale(toDraw.length);
     // Dense families overlap heavily, so let the fill go translucent: overlap then reads as
     // density rather than as one flat block of colour.
-    var fillOpacity = map.nodes.length > 600 ? 0.5 : 0.78;
+    var fillOpacity = toDraw.length > 600 ? 0.5 : 0.78;
 
-    map.nodes.forEach(function (n) {
-      var m = self.byId[n.id];
-      if (!m) return;
-      var p3 = project(n);
-      var r = radiusFor(m.resolution, nodeScale);
+    // Work out how big each one is before drawing any of them, so they can be drawn largest
+    // first. SVG has no z-index: the last element painted is the one on top and the one that
+    // hit-testing returns. In a tight cluster four representatives can sit within seven
+    // pixels of each other, and in document order a single-entry node landed squarely on the
+    // centre of a 70-entry stack, so clicking the stack selected the small node instead and
+    // the stack could not be opened at all. Largest at the back means whatever a reader can
+    // actually see is what a click lands on.
+    toDraw.forEach(function (item) {
+      var m = self.byId[item.n.id];
+      if (!m) { item.skip = true; return; }
+      var n = item.n;
+      if (item.count > 1) {
+        // The stack's own reading of the family, rather than whichever entry happened to be
+        // first: colour by the method most of it was solved by, halo only if most of it is
+        // ligand-bound, and size from the median resolution so one 0.9 A outlier in a
+        // hundred does not set the size for all of them.
+        var methods = {}, withLigand = 0, resolutions = [], approxCount = 0;
+        item.ids.forEach(function (id) {
+          var mm = self.byId[id];
+          if (!mm) return;
+          methods[mm.method] = (methods[mm.method] || 0) + 1;
+          if (mm.has_ligand) withLigand++;
+          if (mm.resolution) resolutions.push(mm.resolution);
+        });
+        byStack[n.stack].forEach(function (o) { if (o.approx) approxCount++; });
+        var best = null;
+        for (var k in methods) { if (best === null || methods[k] > methods[best]) best = k; }
+        resolutions.sort(function (a, b) { return a - b; });
+        m = {
+          method: best,
+          resolution: resolutions.length ? resolutions[resolutions.length >> 1] : null,
+          has_ligand: withLigand * 2 > item.count,
+          pdb_id: m.pdb_id, organism: m.organism, identity: m.identity
+        };
+        n = { x: n.x, y: n.y, z: n.z, approx: approxCount * 2 > item.count };
+      }
+      item.m = m;
+      item.node = n;
+      // The radius the sort orders by has to be the radius that gets drawn, so it is derived
+      // from the aggregate above rather than from the first member's resolution.
+      item.r = radiusFor(m.resolution, nodeScale)
+        * (item.count > 1 ? stackScale(item.count, stackMax) : 1);
+    });
+    toDraw = toDraw.filter(function (item) { return !item.skip; });
+    toDraw.sort(function (a, b) { return b.r - a.r; });
+
+    toDraw.forEach(function (item) {
+      var n = item.node;
+      var m = item.m;
+      var p3 = self.place(project, n);
+      var r = item.r;
+      var stacked = item.count > 1;
       var g = el("g", {
-        "class": "node", "data-id": n.id, tabindex: "-1",
+        "class": "node" + (stacked ? " stacked" : "") + (n.approx ? " approx" : "")
+          + (item.offscale ? " offscale" : ""),
+        "data-id": item.n.id, "data-count": item.count,
+        "data-stack": item.n.stack == null ? null : item.n.stack,
+        tabindex: "-1",
         transform: "translate(" + p3.x.toFixed(2) + "," + p3.y.toFixed(2) + ")"
       });
       g.style.setProperty("--r0", r + "px");
@@ -280,21 +490,74 @@
         }));
       }
 
+      // An inferred position is drawn hollow. A third of a large family, and two thirds of
+      // ABL1's, sits at a position copied from the nearest representative by identity rather
+      // than measured, and the map used to draw those exactly like the ones that were
+      // aligned. Set as an attribute, not from a stylesheet: a CSS rule would beat the
+      // density-driven fill-opacity above and flatten every node in a crowded family.
       var body = el("circle", {
         "class": "body", r: r,
-        fill: methodColour(m.method), "fill-opacity": fillOpacity,
+        fill: methodColour(m.method),
+        "fill-opacity": n.approx ? (fillOpacity * 0.18).toFixed(3) : fillOpacity,
         stroke: methodColour(m.method), "stroke-width": .8 * nodeScale
       });
       g.appendChild(body);
 
+      // A stack is always ringed, however few it holds, because size alone is ambiguous
+      // against the resolution scale: a big node might be one good structure.
+      if (stacked) {
+        g.appendChild(el("circle", {
+          "class": "stackring", r: r + Math.max(1.6, 2.6 * nodeScale),
+          "stroke-width": Math.max(.6, 1.0 * nodeScale)
+        }));
+        // Past this the count is worth printing. Below it the ring is enough, and a field of
+        // two-digit labels is unreadable.
+        if (item.count >= 25 && r >= 5) {
+          var count = el("text", { "class": "stackcount", y: r * 0.36 });
+          count.textContent = item.count;
+          g.appendChild(count);
+        }
+      }
+
+      // A chevron pointing the way the structure actually lies, so a pinned node reads as
+      // "it continues past here" rather than as a structure that genuinely sits on the rim.
+      // Rotated to the bearing from the centre, which is the part of its position the fit
+      // has not thrown away.
+      if (item.offscale) {
+        var bearing = Math.atan2(p3.y - cy, p3.x - cx) * 180 / Math.PI;
+        item.mark = el("path", {
+          "class": "offscalemark", d: "M0,-3.4 L3.6,0 L0,3.4",
+          transform: "rotate(" + bearing.toFixed(1) + ") translate("
+            + (r + 3.2).toFixed(1) + ",0)"
+        });
+        g.appendChild(item.mark);
+      }
+
       var title = el("title");
-      title.textContent = m.pdb_id + " · " + (m.resolution ? m.resolution + " Å" : m.method)
-        + " · " + (m.identity != null ? m.identity + "% id" : "")
-        + (m.organism ? " · " + m.organism : "");
+      if (stacked) {
+        title.textContent = item.count + " entries on one construct · "
+          + (m.resolution ? "median " + m.resolution + " Å" : m.method)
+          + (n.approx ? " · position inferred" : "")
+          + " · click to open";
+      } else {
+        title.textContent = m.pdb_id + " · " + (m.resolution ? m.resolution + " Å" : m.method)
+          + " · " + (m.identity != null ? m.identity + "% id" : "")
+          + (m.organism ? " · " + m.organism : "")
+          + (n.approx ? " · position inferred" : "");
+      }
+      if (item.offscale) {
+        title.textContent += " · OFF SCALE: " + item.outBy.toFixed(1)
+          + "x beyond the plotted range, pinned to the edge";
+      }
       g.appendChild(title);
 
       gNodes.appendChild(g);
-      self.nodesById[n.id] = g;
+      // Every id the element stands for resolves to it, so hovering an entry in the table
+      // still pulses the right place on the map when its point is collapsed.
+      item.ids.forEach(function (id) { self.nodesById[id] = g; });
+      // `n` and not `item.n`: for a stack this is the synthesised node carrying the point's
+      // own coordinates, which is what a rotation has to re-project.
+      self.rendered.push({ g: g, ids: item.ids, n: n, mark: item.mark, r: r });
     });
     svg.appendChild(gNodes);
 
@@ -382,7 +645,24 @@
     svg.onmouseleave = function () { if (self.opts.onHover) self.opts.onHover(null); };
     svg.onclick = function (ev) {
       var g = ev.target.closest ? ev.target.closest(".node") : null;
-      if (g && self.opts.onPick) self.opts.onPick(g.getAttribute("data-id"));
+      if (!g) {
+        // Empty field closes whatever was opened. Without a way back, opening a 400-entry
+        // point is a one-way trip that only a reload undoes.
+        var any = false;
+        for (var key in self.expanded) { any = true; break; }
+        if (any) { self.expanded = {}; self.draw(); }
+        return;
+      }
+      // A crowded point opens rather than selecting: there is no single entry to select,
+      // and picking the one that happens to stand for the group would be a lie about which
+      // structure the reader clicked.
+      var stack = g.getAttribute("data-stack");
+      if (stack && Number(g.getAttribute("data-count")) > 1) {
+        self.expanded[stack] = true;
+        self.draw();
+        return;
+      }
+      if (self.opts.onPick) self.opts.onPick(g.getAttribute("data-id"));
     };
 
     if (this._visible) this.applyVisible(this._visible);
@@ -393,10 +673,17 @@
      the shape of the whole family stays legible while a filter is narrowing it. */
   Constellation.prototype.applyVisible = function (visibleSet) {
     this._visible = visibleSet;
-    var ids = this.nodesById;
-    for (var id in ids) {
-      ids[id].classList.toggle("dim", !visibleSet.has(id));
-    }
+    // Per drawn element, and dimmed only when NONE of what it stands for survives the
+    // filters. Toggling through `nodesById` instead would write the verdict of whichever
+    // member came last onto the whole stack, so a point holding 400 entries would vanish
+    // because one of them was filtered out.
+    (this.rendered || []).forEach(function (item) {
+      var on = false;
+      for (var i = 0; i < item.ids.length; i++) {
+        if (visibleSet.has(item.ids[i])) { on = true; break; }
+      }
+      item.g.classList.toggle("dim", !on);
+    });
     var edges = this.svg.querySelectorAll(".edge");
     for (var i = 0; i < edges.length; i++) {
       var e = edges[i];

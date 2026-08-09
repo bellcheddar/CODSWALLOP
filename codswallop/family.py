@@ -252,8 +252,13 @@ def decorate(fam: dict) -> dict:
     # The structural embedding when a workstation has computed one for this family, the
     # sequence-identity placeholder when it has not. Read through embed_io, which imports
     # nothing beyond the standard library, so the droplet never needs biotite or tmtools.
+    # `annotations` explicitly: _compact has already lifted every member's Pfam list into
+    # that lookup by the time the map is built, so the cluster labeller reading m["pfam"]
+    # found nothing on every real request and silently fell through to naming each cluster
+    # after whichever protein held a plurality of it.
     fam["map"] = layout.compute(members, min(floor, config.IDENTITY_MAX - 1),
-                                embedding=_embedding_for(fam["slug"]))
+                                embedding=_embedding_for(fam["slug"]),
+                                annotations=fam.get("annotations"))
 
     fam["contacts"] = _optional("contacts", lambda: _contacts_for(fam["slug"]), None)
     fam["topology"] = _optional("topology", lambda: _topology_for(fam["slug"]), None)

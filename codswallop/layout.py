@@ -24,6 +24,36 @@ MAX_CLUSTERS = 8
 MAX_EDGES = 600
 NEIGHBOURS = 2
 
+# ---------------------------------------------------------------------------------------
+# Stacking.
+#
+# Members sharing a construct share an MDS coordinate exactly, and used to be fanned out
+# around it by a golden-angle spiral of radius 0.012*sqrt(k). That is a sunflower packing,
+# and past a couple of dozen members it draws its own parastichies: the visible "arms" in a
+# dense family were phyllotaxis, not structure. Worse, the radius was never bounded, so on
+# ABL1 (137 members on one point) the decoration spanned 0.281 against a median
+# representative-to-representative distance of 0.104. The artefact was 2.7x the signal, and
+# two nodes on opposite rims of one disc are the same sequence.
+#
+# So: past STACK_MAX a point is drawn as a single node scaled by how many entries it holds,
+# and expands on click. The fan survives below that, where it does what it was meant to do.
+STACK_MAX = 12
+# Even an expanded stack is bounded, as a fraction of the distance to the nearest other
+# representative: a fan must never reach far enough to be mistaken for a neighbouring group.
+FAN_FRACTION = 0.35
+# ... but never collapsed to nothing, or a tight cluster's members become unpickable.
+FAN_MIN = 0.02
+
+# Where the dendrogram is cut for the cluster labels printed on the field. The same value as
+# `DEFAULTS.cut` in family.js, and the same average linkage as `TmHeatmap.cluster`, so the
+# labels on the map name the same groups the Structures heatmap shows and the cluster filter
+# selects. Two clusterings of one matrix that disagree would be worse than none.
+CLUSTER_CUT = 0.18
+# Clusters below this share of the family are left unlabelled: the field has room for a
+# handful of names, and a singleton's label costs more legibility than it buys.
+LABEL_MIN_SHARE = 0.02
+MAX_LABELS = 6
+
 
 def _short_organism(name: Optional[str]) -> str:
     """`Escherichia coli K-12` -> `E. coli`. Cluster labels are printed on the field, so
@@ -85,7 +115,287 @@ def third_axis(tm: list) -> Optional[list]:
         return None
 
 
-def _from_embedding(members: list[dict], embedding: dict) -> dict:
+def _average_linkage(tm: list, cut: float) -> Optional[list]:
+    """Cluster the representatives, returning one cluster index per representative.
+
+    Average linkage on 1 - TM, cut at `cut`. Deliberately the same algorithm and the same
+    default height as `TmHeatmap.cluster`/`cut` in the browser, because the map's labels and
+    the heatmap's groups should name the same things: a reader who cuts the matrix into four
+    groups and then counts five labelled clumps on the map has been told the app cannot keep
+    its story straight.
+
+    "Should", not "will". Checked against scipy's `linkage(method="average")` over all 71
+    built families: 69 partitions identical, and the two that differ (ribonuclease, spike)
+    agree exactly once ties are broken by a 1e-9 jitter. The matrix ships rounded to 2 dp for
+    the heatmap, which leaves tie groups of up to 344 equal pairs, and any two
+    implementations then merge in whatever order they happen to scan. Both trees are valid
+    average linkage; a handful of borderline representatives can fall either side. The counts
+    printed on the labels are exact for the grouping shown.
+
+    Single linkage would be the cheaper choice and is useless here: every member of a family
+    is the same fold, so a single-linkage tree chains straight through and puts 244 of
+    hemoglobin's 244 representatives in one group.
+
+    numpy, guarded, exactly as `third_axis`: it arrives as a biopython dependency rather than
+    being requested, and a droplet without it should lose the labels, not the page.
+    """
+    try:
+        import numpy as np
+    except ImportError:                         # pragma: no cover - numpy is a hard dep
+        return None
+    n = len(tm or [])
+    if n == 0:
+        return None
+    if n == 1:
+        return [0]
+    try:
+        m = np.asarray(tm, dtype=float)
+        if m.shape != (n, n):
+            return None
+        d = 1.0 - m
+        np.fill_diagonal(d, 0.0)
+        # The stored matrix is rounded to 2 dp per row, so it is very nearly but not exactly
+        # symmetric. Averaging costs nothing and stops the merge order depending on which
+        # triangle a value was read from.
+        d = (d + d.T) / 2.0
+    except Exception:                           # noqa: BLE001
+        return None
+
+    inf = float("inf")
+    work = d.copy()
+    np.fill_diagonal(work, inf)
+    active = np.ones(n, dtype=bool)
+    size = np.ones(n, dtype=float)
+    leaves = [[i] for i in range(n)]
+
+    for _ in range(n - 1):
+        sub = np.where(active[:, None] & active[None, :], work, inf)
+        flat = int(np.argmin(sub))
+        i, j = flat // n, flat % n
+        height = float(sub[i, j])
+        # Average linkage is monotonic, so the first merge above the cut height is also the
+        # last: everything remaining is further apart than this.
+        if not (height == height) or height == inf or height > cut:
+            break
+        si, sj = float(size[i]), float(size[j])
+        row = (work[i] * si + work[j] * sj) / (si + sj)
+        work[i, :] = row
+        work[:, i] = row
+        work[i, i] = inf
+        size[i] = si + sj
+        leaves[i] = leaves[i] + leaves[j]
+        active[j] = False
+
+    out = [0] * n
+    order = sorted((i for i in range(n) if active[i]),
+                   key=lambda i: -len(leaves[i]))
+    for c, i in enumerate(order):
+        for leaf in leaves[i]:
+            out[leaf] = c
+    return out
+
+
+def _tidy_description(text: Optional[str]) -> str:
+    """A deposited description, made fit to print on the field.
+
+    Entries from the 1990s are shouted in full caps (`PROTO-ONCOGENE TYROSINE-PROTEIN KINASE
+    ABL`) and sit next to modern mixed-case ones in the same cluster, so the raw mode of the
+    two is decided by typography rather than by content.
+    """
+    t = (text or "").strip()
+    if not t:
+        return ""
+    letters = [c for c in t if c.isalpha()]
+    if letters and all(c.isupper() for c in letters):
+        t = t.title()
+    for prefix in ("Isoform Short Of ", "Isoform Long Of ",
+                   "Isoform Short of ", "Isoform Long of "):
+        if t.startswith(prefix):
+            t = t[len(prefix):]
+            break
+    return t
+
+
+# Words a truncated label must not end on. Pfam's human-readable names are frequently long
+# conjunctions ("Protein tyrosine and serine/threonine kinase"), and cutting one at a word
+# boundary alone left "Protein tyrosine and…", which reads as a mistake rather than as an
+# abbreviation.
+_TRAILING = {"and", "or", "of", "the", "a", "an", "in", "to", "with", "for", "from", "on"}
+
+
+def _shorten(text: str, limit: int = 40) -> str:
+    if len(text) <= limit:
+        return text
+    cut = text[:limit].rsplit(" ", 1)[0]
+    if len(cut) < limit // 2:
+        cut = text[:limit]
+    words = cut.split(" ")
+    while len(words) > 1 and words[-1].lower().strip(",;:-") in _TRAILING:
+        words.pop()
+    return " ".join(words).rstrip(" ,;:-") + "…"
+
+
+# A cluster is named after one protein only when that protein actually owns it. Below this
+# the cluster is a mixture and gets named after what its members share instead.
+DOMINANT_ACCESSION = 0.5
+DOMINANT_DOMAIN = 0.6
+
+
+def _domains_of(member: dict, annotations: Optional[dict]) -> list:
+    """The member's Pfam list, whether or not the payload has been compacted yet.
+
+    `_compact` lifts the Pfam and InterPro lists off every member into one family-level
+    lookup and leaves an `annot_id` behind, because near-identical domain lists on 2,000
+    members was the heaviest field in the payload. The map is built after that has happened,
+    so reading `m["pfam"]` here finds nothing on every real request: checked against the live
+    server, 0 of 2,000 members carried it, which would have left the domain rule below dead
+    and every mixed cluster named after whichever protein held a plurality.
+    """
+    direct = member.get("pfam")
+    if direct:
+        return direct
+    if annotations:
+        entry = annotations.get(member.get("annot_id"))
+        if entry:
+            return entry.get("pfam") or []
+    return []
+
+
+def _label_clusters(groups: list[list[dict]], annotations: Optional[dict] = None) -> list[str]:
+    """Name each cluster after whatever is actually true of it.
+
+    Counted over entities rather than over representatives: a representative can stand for a
+    hundred entries, and naming a cluster after whichever construct happened to be picked
+    would let one PDB entry outvote a hundred.
+
+    Three rules, in order, because a family search at 30 % identity does not return one
+    protein. It returns a superfamily, and the biggest structural cluster is usually a
+    mixture with no majority member at all:
+
+    1. One UniProt accession holds half the cluster -> name it after that protein. Keyed on
+       the accession and not on the deposited description, which splits the vote: ABL1 is
+       variously "Tyrosine-protein kinase ABL1", "Proto-oncogene tyrosine-protein kinase
+       ABL1" and "ABL TYROSINE KINASE", so counting free text lets a contaminant with one
+       consistent spelling out-poll the family's own subject.
+
+    2. No majority protein, but a shared Pfam domain -> name the domain. ABL1's largest
+       cluster is 1,932 entities of which the top accession (EGFR) is 17 %; calling it
+       "Epidermal growth factor receptor" states something false. 95 % of it carries the
+       protein tyrosine kinase domain, which is both true and the reason those structures
+       cluster.
+
+    3. Neither -> the plurality description, which at that point is the best on offer.
+
+    Where two clusters still take the same name, the median construct length disambiguates
+    them, because that is usually what separates them: ABL1 splits into a ~290 aa kinase
+    domain and a ~62 aa SH3/SH2 fragment set, both truthfully "Tyrosine-protein kinase ABL1".
+    """
+    import collections
+
+    base, lengths = [], []
+    for group in groups:
+        n = len(group) or 1
+        accessions = collections.Counter()
+        by_accession: dict = {}
+        domains = collections.Counter()
+        descriptions = collections.Counter()
+        lens = []
+        for m in group:
+            desc = _tidy_description(m.get("description"))
+            if desc:
+                descriptions[desc] += 1
+            acc = m.get("uniprot")
+            if acc:
+                accessions[acc] += 1
+                if desc:
+                    by_accession.setdefault(acc, collections.Counter())[desc] += 1
+            # Counted once per member however many copies of the domain it carries, so the
+            # share is "how much of this cluster has it" rather than a domain census.
+            for dom in {(d or {}).get("name") for d in _domains_of(m, annotations)}:
+                if dom:
+                    domains[dom] += 1
+            if m.get("seq_length"):
+                lens.append(int(m["seq_length"]))
+
+        label = ""
+        if accessions:
+            acc, count = accessions.most_common(1)[0]
+            if count / n >= DOMINANT_ACCESSION:
+                named = by_accession.get(acc)
+                label = named.most_common(1)[0][0] if named else ""
+        if not label and domains:
+            dom, count = domains.most_common(1)[0]
+            if count / n >= DOMINANT_DOMAIN:
+                label = _domain_name(dom)
+        if not label and descriptions:
+            label = descriptions.most_common(1)[0][0]
+        if not label:
+            orgs = collections.Counter(_short_organism(m.get("organism")) for m in group)
+            label = orgs.most_common(1)[0][0] if orgs else "Group"
+
+        base.append(label)
+        lens.sort()
+        lengths.append(lens[len(lens) // 2] if lens else None)
+
+    clashes = {name for name, c in collections.Counter(base).items() if c > 1}
+    out = []
+    for label, median_len in zip(base, lengths):
+        if label in clashes and median_len:
+            out.append(_shorten(label, 30) + ", " + str(median_len) + " aa")
+        else:
+            out.append(_shorten(label))
+
+    # Length does not always separate them. Alpha-synuclein's six clusters are six
+    # conformations of one 140-residue protein, so all six came back "Alpha-synuclein,
+    # 140 aa" and the field printed the same label six times. The groups are real and the
+    # nodes stay; only the largest keeps the name, because a label repeated is a label that
+    # identifies nothing. `groups` arrives largest-first, so the one that keeps it is the one
+    # worth naming.
+    seen: set = set()
+    for i, label in enumerate(out):
+        if label in seen:
+            out[i] = ""
+        else:
+            seen.add(label)
+    return out
+
+
+def _domain_name(name: str) -> str:
+    """`Protein kinase domain (Pkinase)` -> `Protein kinase domain`.
+
+    Pfam carries the accession's short name in brackets after the human one. It is the more
+    precise of the two and the less readable, and the field has room for one.
+    """
+    text = (name or "").strip()
+    if text.endswith(")") and "(" in text:
+        head = text[:text.rindex("(")].strip()
+        if head:
+            return head
+    return text
+
+
+def _nearest_neighbour(points: list[tuple]) -> dict:
+    """Distance from each distinct representative point to the closest other one.
+
+    This is what bounds the fan: a group of identical constructs may be spread far enough to
+    be individually pickable, and no further than a share of the way to the nearest thing it
+    could be confused with.
+    """
+    out: dict = {}
+    for i, a in enumerate(points):
+        best = float("inf")
+        for j, b in enumerate(points):
+            if i == j:
+                continue
+            dist = math.hypot(a[0] - b[0], a[1] - b[1])
+            if dist < best:
+                best = dist
+        out[a] = best if best < float("inf") else 1.0
+    return out
+
+
+def _from_embedding(members: list[dict], embedding: dict,
+                    annotations: Optional[dict] = None) -> dict:
     """Position every member from the pairwise TM-score matrix.
 
     Representatives carry their MDS coordinates directly. Every other member inherits the
@@ -113,33 +423,130 @@ def _from_embedding(members: list[dict], embedding: dict) -> dict:
             ident_of.setdefault(r["seq_id"], m["identity"])
     ranked = sorted(((ident_of.get(r["seq_id"], 0.0), r) for r in reps), key=lambda t: t[0])
 
-    nodes, approximated = [], 0
-    per_point: dict[tuple, int] = {}
+    # ---- pass 1: which representative does each member sit on? -------------------------
+    # Separated from placement because the fan needs to know how many members share a point
+    # before it can decide how far to spread the first of them.
+    #
+    # The fallback used to be a plain `min(ranked, key=|identity - target|)`. In these
+    # families hundreds of representatives sit at 100 % identity, so the tie fell to sort
+    # order and every ambiguous member landed on one representative: 126 of ABL1's, 194 of
+    # spike's, which is most of what made the largest discs. The tie carries no information,
+    # so it is spread round-robin over the representatives that tie rather than concentrated
+    # into a group that looks like a finding. It is still a guess, and it is now flagged as
+    # one on the node.
+    tie_turn: dict[float, int] = {}
+    assigned, approximated = [], 0
     for m in members:
         r = by_seq.get(m.get("seq_id"))
-        if r is None:
+        approx = r is None
+        if approx:
             approximated += 1
             target = m.get("identity")
             if target is None or not ranked:
                 r = reps[0]
             else:
-                r = min(ranked, key=lambda t: abs(t[0] - target))[1]
-        # Identical constructs share a point exactly, so spread them just enough to be
-        # individually hoverable without implying a difference that is not there.
+                best = min(abs(ident - target) for ident, _ in ranked)
+                tied = [rep for ident, rep in ranked if abs(ident - target) <= best + 1e-9]
+                turn = tie_turn.get(best, 0)
+                tie_turn[best] = turn + 1
+                r = tied[turn % len(tied)]
+        assigned.append((m, r, approx))
+
+    per_point: dict[tuple, int] = {}
+    for _, r, _ in assigned:
         key = (r["x"], r["y"])
-        k = per_point.get(key, 0)
-        per_point[key] = k + 1
+        per_point[key] = per_point.get(key, 0) + 1
+    near = _nearest_neighbour(list(per_point))
+
+    # ---- clusters, from the same tree the Structures heatmap cuts ----------------------
+    cluster_of = _average_linkage(embedding.get("tm") or [], CLUSTER_CUT)
+    rep_cluster = {}
+    if cluster_of and len(cluster_of) == len(reps):
+        rep_cluster = {reps[i]["seq_id"]: c for i, c in enumerate(cluster_of)}
+    grouped: dict[int, list] = {}
+    for m, r, _ in assigned:
+        grouped.setdefault(rep_cluster.get(r["seq_id"], 0), []).append(m)
+    # Which clusters earn a label is settled BEFORE they are named, so that clashes are
+    # resolved only among the names a reader will actually see. Deciding it the other way
+    # round let a 46-entity cluster that never gets drawn force the 1,827-entity one next to
+    # it to carry a disambiguating suffix against a label that was not on the field.
+    floor = max(1, LABEL_MIN_SHARE * len(assigned))
+    keys = [k for k in sorted(grouped, key=lambda k: -len(grouped[k])) if len(grouped[k]) >= floor]
+    keys = keys[:MAX_LABELS]
+    names = {}
+    if rep_cluster and keys:
+        for key, name in zip(keys, _label_clusters([grouped[k] for k in keys], annotations)):
+            # A cluster whose name duplicated a larger one's comes back blank, and an unnamed
+            # label is not a label: it would print as a bare count floating on the field.
+            if name:
+                names[key] = name
+
+    # ---- pass 2: place ------------------------------------------------------------------
+    nodes = []
+    seen: dict[tuple, int] = {}
+    for m, r, approx in assigned:
+        key = (r["x"], r["y"])
+        k = seen.get(key, 0)
+        seen[key] = k + 1
+        total = per_point[key]
+        # Identical constructs share a point exactly, so spread them just enough to be
+        # individually pickable without implying a difference that is not there. Bounded by
+        # a share of the distance to the nearest other representative, so the fan can never
+        # reach far enough to be read as a group of its own: unbounded, ABL1's largest fan
+        # was 2.7x the median distance between genuinely distinct structures.
+        limit = max(FAN_MIN, FAN_FRACTION * near.get(key, 1.0))
+        radius = min(0.012 * math.sqrt(k), limit)
         angle = 2 * math.pi * _golden_jitter(k)
-        radius = 0.012 * math.sqrt(k)
+        ci = rep_cluster.get(r["seq_id"], 0)
         node = {
             "id": m["entity_id"], "pdb_id": m["pdb_id"],
-            "cluster": 0, "cluster_name": "",
+            "cluster": ci, "cluster_name": names.get(ci, ""),
             "x": round(r["x"] + radius * math.cos(angle), 4),
             "y": round(r["y"] + radius * math.sin(angle), 4),
+            # The point this node shares, so the renderer can draw a crowded one as a single
+            # node and expand it on demand, and `k` so it can pick which one to draw.
+            # Keyed on the coordinate rather than on the representative's seq_id, so that the
+            # group the renderer assembles and the `sn` count computed here are guaranteed to
+            # be counting the same thing even if two representatives land on one point.
+            "stack": "%.4f,%.4f" % (r["x"], r["y"]),
+            "si": k,
+            "sn": total,
         }
+        # Flagged rather than quietly drawn like a measurement. 65 % of ABL1's nodes are at
+        # an inferred position, and the map gave no way to tell which.
+        if approx:
+            node["approx"] = True
         if r.get("z") is not None:
             node["z"] = round(r["z"] + radius * math.sin(angle * 1.7), 4)
         nodes.append(node)
+
+    # ---- cluster labels, positioned off the group they name ----------------------------
+    clusters = []
+    if names:
+        by_cluster: dict[int, list] = {}
+        for n in nodes:
+            by_cluster.setdefault(n["cluster"], []).append(n)
+        for ci, group in by_cluster.items():
+            if ci not in names:
+                continue
+            gx = sum(n["x"] for n in group) / len(group)
+            gy = sum(n["y"] for n in group) / len(group)
+            spread = max(math.hypot(n["x"] - gx, n["y"] - gy) for n in group)
+            # Pushed out along the line from the map's centre, so a label sits clear of its
+            # own nodes instead of on top of the densest part of them.
+            norm = math.hypot(gx, gy) or 1.0
+            out = spread + 0.08
+            entry = {
+                "index": ci, "name": names.get(ci, ""), "count": len(group),
+                "x": round(gx + out * (gx / norm), 4),
+                "y": round(gy + out * (gy / norm), 4),
+            }
+            zs_group = [n["z"] for n in group if n.get("z") is not None]
+            if zs_group:
+                entry["z"] = round(sum(zs_group) / len(zs_group), 4)
+            clusters.append(entry)
+        clusters.sort(key=lambda c: -c["count"])
+        clusters = clusters[:MAX_LABELS]
 
     # Edges between representatives above the conventional same-fold threshold. This is what
     # the plan asked for all along: "edges between entries above the identity threshold",
@@ -157,7 +564,13 @@ def _from_embedding(members: list[dict], embedding: dict) -> dict:
         # Edges reference construct ids, not entity ids, so the renderer resolves them
         # through the representative each node came from.
         "edges": [],
-        "clusters": [],
+        "clusters": clusters,
+        # Where the labels came from, so the panel can say so and the Structures heatmap can
+        # be moved to the same height rather than the two quietly disagreeing.
+        "cluster_cut": CLUSTER_CUT,
+        # Past this many entries on one point the renderer draws a single node and expands it
+        # on click. Sent rather than hard-coded in the JS so the two cannot drift.
+        "stack_max": STACK_MAX,
         "placeholder": False,
         "embedded": True,
         # Whether the map can be turned. A flat family has no third axis worth drawing, and
@@ -181,7 +594,8 @@ def _from_embedding(members: list[dict], embedding: dict) -> dict:
 
 
 def compute(members: list[dict], identity_floor: int = 30,
-            embedding: Optional[dict] = None) -> dict:
+            embedding: Optional[dict] = None,
+            annotations: Optional[dict] = None) -> dict:
     """Position every member, returning nodes, edges and cluster labels.
 
     Coordinates are in a -1..1 box; the client scales them to whatever the panel is. Doing
@@ -195,7 +609,7 @@ def compute(members: list[dict], identity_floor: int = 30,
     # because the matrix is expensive; once it has been computed for a family, the map means
     # what section 1.2 of the plan always said it meant.
     if embedding and embedding.get("representatives"):
-        return _from_embedding(members, embedding)
+        return _from_embedding(members, embedding, annotations)
 
     # ---- cluster by source organism ---------------------------------------------------
     counts: dict[str, int] = {}

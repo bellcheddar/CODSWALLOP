@@ -2515,32 +2515,34 @@
   /* The map says which of the two things it is showing. A placeholder that looks like a
      measurement is worse than no map, and an embedding that goes unlabelled wastes the
      one thing that makes it worth the compute. */
-  function renderFieldNote(map) {
+  function renderFieldNote(map, ctl) {
     var el = $("fieldNote");
     if (!el) return;
+    // Kept SHORT, deliberately. This sits over the field on a wide screen and under it on a
+    // phone, and the long version ran to eleven lines: on an iPhone it covered the map it
+    // was describing end to end, so the reader lost the thing the words were about. One
+    // sentence of provenance, then a key. The reasoning behind each choice belongs in the
+    // README and in the source, not on top of the data.
     if (map && map.embedded) {
-      el.innerHTML = "<b>Structural embedding.</b> Position is multidimensional scaling of " +
-        "the pairwise TM-score matrix over " + map.n_representatives +
-        " representative structures (" + commas(map.n_pairs) + " alignments, median TM " +
-        map.median_tm + "), so distance is structural distance and the 0.5 contour is the " +
-        "conventional same-fold boundary. Size is 1/resolution; colour is method; an amber " +
-        "halo means ligand-bound." +
-        (map.three_d ? " <b>Drag to rotate:</b> the third axis is the next principal " +
-          "coordinate of the same matrix, so depth is structural distance like the other " +
-          "two, and a node further away is drawn fainter." : "") +
+      el.innerHTML = "<b>Structural embedding.</b> MDS of the pairwise TM-score matrix (" +
+        map.n_representatives + " representatives, median TM " + map.median_tm +
+        "), so distance is structural distance and 0.5 is the same-fold line. " +
+        "Size is 1/resolution, colour is method, amber halo is ligand-bound." +
+        (map.three_d ? " <b>Drag to rotate.</b>" : "") +
+        (map.clusters && map.clusters.length ? " Labels name clusters." : "") +
+        " Ringed node: several entries on one construct, click to open." +
         (map.approximated
-          ? " " + commas(map.approximated) + " of " + commas(map.nodes.length) +
-            " entries use a construct that was not among the representatives and are placed " +
-            "at the nearest one by identity."
+          ? " Hollow: position inherited, not measured (" + commas(map.approximated) + ")."
+          : "") +
+        (ctl && ctl.offscale
+          ? " Brass chevron: off scale, pinned to the edge (" + commas(ctl.offscale) + ")."
           : "");
     } else {
       el.innerHTML = "<b>Placeholder layout, not a structural measurement.</b> Outward is " +
         "decreasing identity to the seed, ranked; sector is source organism; size is " +
-        "1/resolution; colour is method; an amber halo means ligand-bound. Everything else " +
-        "on this page is real. The embedding is not: it needs a pairwise TM-align of every " +
-        "representative against every other, which runs on a workstation and takes minutes " +
-        "to hours, so it cannot happen while you wait. <b>This family has been queued for " +
-        "it</b>, and the map becomes a real structural embedding once it has been built.";
+        "1/resolution; colour is method; amber halo is ligand-bound. The real embedding " +
+        "needs a pairwise TM-align on a workstation, so it cannot run while you wait. " +
+        "<b>This family has been queued for it.</b>";
     }
   }
 
@@ -2892,8 +2894,10 @@
       onHover: setHot,
       onPick: openCard
     });
-    renderFieldNote(fam.map);
+    // The map first: the note reports how many structures the fit pinned to the rim, and
+    // that is only known once the renderer has fitted the panel.
     constellation.render(fam.map, S.members);
+    renderFieldNote(fam.map, constellation);
 
     subscribe(function () {
       renderList();
