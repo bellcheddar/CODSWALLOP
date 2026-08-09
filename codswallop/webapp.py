@@ -143,8 +143,33 @@ def create_app() -> Flask:
                            '</span><span class="seqres">' + "".join(cells) + "</span></div>")
             return Markup("".join(out))
 
+        def figure(name, fam, **kw):
+            """A dossier figure, as Markup, and never fatal.
+
+            A picture that cannot be drawn costs the document that picture; it must not cost
+            the document. The RCSB's image CDN having a bad afternoon is not a reason a
+            grant appendix fails to render.
+            """
+            from markupsafe import Markup
+            from . import figures
+            try:
+                return Markup(getattr(figures, name)(fam, **kw) or "")
+            except Exception:                   # noqa: BLE001
+                app.logger.warning("figure %s failed", name, exc_info=True)
+                return Markup("")
+
+        def embedded(name, fam, **kw):
+            """The data-URI figures, which return structures rather than markup."""
+            from . import figures
+            try:
+                return getattr(figures, name)(fam, **kw)
+            except Exception:                   # noqa: BLE001
+                app.logger.warning("figure %s failed", name, exc_info=True)
+                return None
+
         return {"asset": asset, "version": config.VERSION, "sections": SECTIONS,
-                "annotated_sequence": annotated_sequence}
+                "annotated_sequence": annotated_sequence,
+                "figure": figure, "embedded": embedded}
 
     @app.after_request
     def _no_stale_html(resp):

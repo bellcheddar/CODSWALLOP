@@ -78,6 +78,25 @@
     font-size: 11.5px; color: var(--dim); border-left: 2px solid var(--brass);
     padding-left: 11px; margin: 10px 0;
   }
+  figure { margin: 10px 0 4px; padding: 0; }
+  figure.shot { display: flex; gap: 14px; align-items: flex-start; }
+  figure.shot img {
+    width: 260px; max-width: 45%; border: 1px solid var(--line); border-radius: 6px;
+    background: #fff;
+  }
+  figcaption { font-size: 10.5px; color: var(--mute); margin-top: 6px; }
+  /* Ligand depictions. A fixed box so a long thin molecule and a squat one still line up
+     into a grid rather than a ragged shelf. */
+  .thumbs { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 6px; }
+  .thumb {
+    width: 92px; text-align: center; text-decoration: none; color: inherit;
+    border: 1px solid var(--line); border-radius: 6px; padding: 6px 4px;
+    background: var(--paper);
+  }
+  .thumb img { width: 100%; height: 62px; object-fit: contain; background: #fff; }
+  .thumb b { display: block; font-size: 11px; font-family: ui-monospace, Menlo, monospace;
+             color: var(--accent); margin-top: 3px; }
+  .thumb span { display: block; font-size: 9px; color: var(--mute); }
   .seqkey { display: flex; flex-wrap: wrap; gap: 12px; font-size: 10.5px;
             color: var(--dim); margin: 8px 0 10px; align-items: center; }
   .sw { display: inline-block; width: 11px; height: 11px; border-radius: 2px;
@@ -143,9 +162,13 @@
     <a href="https://alphafold.ebi.ac.uk/entry/{{ acc }}">AlphaFold DB</a>
     <a href="https://www.ebi.ac.uk/interpro/protein/UniProt/{{ acc }}/">InterPro</a>
   {% endif %}
+  {% for d in (fam.domains.domains if fam.domains else []) if d.source == "CATH" %}
+    <a href="https://www.cathdb.info/version/latest/superfamily/{{ d.id }}">CATH {{ d.id }}</a>
+  {% endfor %}
+  {% for d in (fam.domains.domains if fam.domains else []) if d.source and d.source.startswith("SCOP") %}
+    <a href="https://scop.berkeley.edu/sunid={{ d.id }}">SCOP {{ d.id }}</a>
+  {% endfor %}
   {% if fam.map and fam.map.reference %}
-    <a href="https://www.cathdb.info/search/by_sequence?pdb={{ fam.map.reference }}">CATH</a>
-    <a href="http://scop.mrc-lmb.cam.ac.uk/search?t=txt;q={{ fam.map.reference }}">SCOP</a>
     <a href="https://www.rcsb.org/structure/{{ fam.map.reference }}">RCSB {{ fam.map.reference }}</a>
     <a href="https://www.ebi.ac.uk/pdbe/entry/pdb/{{ fam.map.reference|lower }}">PDBe</a>
   {% endif %}
@@ -153,9 +176,8 @@
     <a href="https://www.ebi.ac.uk/interpro/entry/pfam/{{ d.id }}/">{{ d.id }}</a>
   {% endfor %}
 </p>
-<p class="note">CATH and SCOP are searched by the reference structure rather than linked by
-   a classification this tool holds: neither is fetched here, so a direct link would be an
-   identifier invented rather than looked up.</p>
+<p class="note">CATH and SCOP identifiers come from the RCSB's own structure annotations,
+   which the Domains panel already reads, so these are looked up rather than guessed at.</p>
 
 {% set s = fam.stats %}
 <div class="stats">
@@ -179,6 +201,30 @@
     floor rather than a total.
   {% endif %}
 </p>
+
+{# ---- a picture of the reference structure ---------------------------------------- #}
+{% set shot = embedded("structure_image", fam) %}
+{% if shot %}
+<h2>The reference structure</h2>
+<p class="sub">{{ shot.pdb_id }}, the structure every other member of this family is
+   superposed onto. Rendered by the RCSB and embedded here: the live app shows an
+   interactive viewport, which a document that fetches nothing cannot.</p>
+<figure class="shot">
+  <img src="{{ shot.uri }}" alt="Rendered structure of {{ shot.pdb_id }}">
+  <figcaption><a href="https://www.rcsb.org/structure/{{ shot.pdb_id }}">{{ shot.pdb_id }}
+    at the RCSB</a> · <a href="{{ app }}/f/{{ slug }}">open it in the 3D viewer</a></figcaption>
+</figure>
+{% endif %}
+
+{# ---- construct coverage ----------------------------------------------------------- #}
+{% set cov = figure("coverage_svg", fam) %}
+{% if cov %}
+<h2>Which residues anyone has ever seen</h2>
+<p class="sub">How many of this family's constructs contain each residue of the seed. A
+   trough is a stretch nobody has put in a construct, which is a construct-design answer
+   rather than a disorder one.</p>
+<figure>{{ cov }}</figure>
+{% endif %}
 
 {# ---- constructs: the panel this whole tool exists for ------------------------------ #}
 {% if fam.constructs %}
@@ -259,6 +305,13 @@
 {# ---- domains ----------------------------------------------------------------------- #}
 {% if fam.domains and fam.domains.domains %}
 <h2>Domain architecture</h2>
+{% set dom = figure("domain_svg", fam) %}
+{% if dom %}
+<p class="sub">Every source's own domains on the seed axis, one row each. They are not
+   merged: Pfam, CATH, SCOP and InterPro disagree about boundaries, and a merged track
+   would state a consensus none of them gave.</p>
+<figure>{{ dom }}</figure>
+{% endif %}
 <table>
   <thead><tr><th>Domain</th><th>Source</th><th>Span (seed)</th><th>Chains</th></tr></thead>
   <tbody>
@@ -274,6 +327,17 @@
 {# ---- ligands ----------------------------------------------------------------------- #}
 {% if fam.ligands and fam.ligands.components %}
 <h2>What binds it</h2>
+{% set thumbs = embedded("ligand_thumbs", fam) %}
+{% if thumbs %}
+<div class="thumbs">
+  {% for t in thumbs %}
+  <a class="thumb" href="https://www.rcsb.org/ligand/{{ t.id }}">
+    <img src="{{ t.uri }}" alt="{{ t.id }}">
+    <b>{{ t.id }}</b><span>{{ t.count }} entries</span>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
 <table>
   <thead><tr><th>Component</th><th>Class</th><th>Name</th><th>Entries</th><th>Best (Å)</th></tr></thead>
   <tbody>

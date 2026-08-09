@@ -92,6 +92,19 @@ def get_json(url: str, **kwargs) -> Optional[Any]:
     return resp.json()
 
 
+def get_bytes(url: str, **kwargs) -> Optional[bytes]:
+    """GET returning the raw body, or None on 404.
+
+    For the images the dossier embeds. Same retry and rate-limit behaviour as everything
+    else here, because the RCSB's image CDN is the same host being a good citizen towards.
+    """
+    resp = get(url, **kwargs)
+    if resp.status_code == 404:
+        return None
+    resp.raise_for_status()
+    return resp.content
+
+
 def post_search(url: str, payload: dict[str, Any]) -> Optional[dict]:
     """POST a search query, returning parsed JSON.
 
