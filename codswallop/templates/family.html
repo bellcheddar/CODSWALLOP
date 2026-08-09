@@ -79,6 +79,12 @@
               chimeras &amp; fusions <span class="n" id="nFusion"></span></label>
             <label class="toggle"><input type="checkbox" id="optHolo">
               ligand-bound only</label>
+            {# Its opposite, and worth having on its own: apo structures are what a
+               construct designer wants when asking what the protein looks like with
+               nothing in the site. Mutually exclusive with the one above, because asking
+               for both at once asks for nothing. #}
+            <label class="toggle"><input type="checkbox" id="optApo">
+              ligand-free only</label>
           </div>
 
           <span class="filtersum" id="filterSum"></span>
@@ -176,6 +182,21 @@
           <div class="covlegend" id="consLegend"></div>
         </div>
       </div>
+
+      {# ---- the sequence logo ------------------------------------------------------ #}
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Sequence logo</h2>
+          <span class="sub" id="logoSub"></span>
+        </div>
+        <div class="panel-body">
+          <div id="logoIntro"></div>
+          <div class="logowrap"><svg id="seqLogo" role="img"
+               aria-label="Sequence logo across the family alignment"></svg></div>
+          <div id="logoLegend"></div>
+        </div>
+      </div>
+
       <div class="panel">
         <div class="panel-head">
           <h2>Positions people deliberately mutate</h2>
@@ -405,6 +426,19 @@
           <div class="topowrap"><svg id="topoDiagram" role="img"
                aria-label="Secondary structure elements and sheet pairing"></svg></div>
           <div id="topoLegend"></div>
+        </div>
+      </div>
+
+      {# ---- the 2D fold diagram proper ---------------------------------------------- #}
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Fold diagram</h2>
+          <span class="sub" id="foldSub"></span>
+        </div>
+        <div class="panel-body">
+          <div id="foldIntro"></div>
+          <div class="foldwrap"><svg id="foldDiagram" role="img"
+               aria-label="Two-dimensional fold diagram"></svg></div>
         </div>
       </div>
     </section>

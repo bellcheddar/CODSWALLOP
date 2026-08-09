@@ -28,7 +28,8 @@
       methods: null,         // Set of method names, or null for "all"
       orthologues: true,
       fusions: true,
-      holoOnly: false
+      holoOnly: false,
+      apoOnly: false
     },
     view: "map"
   };
@@ -46,6 +47,7 @@
       if (!f.orthologues && m.is_orthologue) return;
       if (!f.fusions && m.is_fusion) return;
       if (f.holoOnly && !m.has_ligand) return;
+      if (f.apoOnly && m.has_ligand) return;
       // A cluster picked off the TM matrix filters like any other control.
       if (S.cluster && !S.cluster.has(m.seq_id)) return;
       vis.add(m.entity_id);
@@ -212,8 +214,26 @@
     $("optFusion").addEventListener("change", function () {
       S.filters.fusions = this.checked; apply();
     });
+    $("optApo").addEventListener("change", function () {
+      S.filters.apoOnly = this.checked;
+      // The two are opposites: holding both would ask for entries that are simultaneously
+      // ligand-bound and not, which is empty by construction rather than by filtering.
+      if (this.checked && $("optHolo").checked) {
+        $("optHolo").checked = false;
+        S.filters.holoOnly = false;
+      }
+      apply();
+    });
     $("optHolo").addEventListener("change", function () {
-      S.filters.holoOnly = this.checked; apply();
+      S.filters.holoOnly = this.checked;
+      // Both at once asks for entries that are ligand-bound and ligand-free, which is empty
+      // by construction: the pair has to be exclusive from whichever side is clicked, and
+      // doing it in only one handler left the other able to produce a blank map.
+      if (this.checked && $("optApo").checked) {
+        $("optApo").checked = false;
+        S.filters.apoOnly = false;
+      }
+      apply();
     });
   }
 
@@ -2147,6 +2167,171 @@
     });
   }
 
+  /* ---- the sequence logo -------------------------------------------------------------
+     A Schneider logo, not a decorated bar chart. Column height is information content in
+     bits, R = log2(20) - H, and each letter's share of that height is its own frequency.
+     The alignment already reports conservation as 1 - H/log2(20), so R is 4.32 x that:
+     the numbers on this panel and on the conservation track above it are the same
+     measurement in different units, rather than two things that happen to look similar. */
+  var LOGO_GROUP = {
+    hydrophobic: "var(--accent)", polar: "var(--cyan)", basic: "var(--violet)",
+    acidic: "var(--oxide)", special: "var(--amber)", aromatic: "var(--mint)"
+  };
+  var MAX_BITS = Math.log(20) / Math.log(2);      // 4.322, a fully conserved column
+
+  function renderLogo() {
+    var msa = S.family.msa;
+    var svg = $("seqLogo");
+    if (!svg) return;
+    var cols = (msa && msa.columns) || [];
+    var usable = cols.filter(function (c) { return c.conservation != null && c.top && c.top.length; });
+    if (!usable.length) {
+      $("logoSub").textContent = "no alignment for this family";
+      svg.innerHTML = "";
+      $("logoIntro").innerHTML = '<p class="empty">The logo is drawn from the family ' +
+        "alignment, which this family does not have.</p>";
+      return;
+    }
+
+    var CW = 13, H = 132, PAD_B = 26, PAD_T = 8;
+    var W = usable.length * CW;
+    var parts = [];
+
+    usable.forEach(function (c, i) {
+      var bits = Math.max(0, c.conservation) * MAX_BITS;
+      var x = i * CW;
+      // Letters bottom-up, largest first, so the dominant residue sits on the baseline
+      // where the eye reads it.
+      var y = H - PAD_B;
+      c.top.forEach(function (t) {
+        var h = (t.f || 0) * bits / MAX_BITS * (H - PAD_B - PAD_T);
+        if (h < 0.7) return;                    // below a pixel: noise, not a residue
+        y -= h;
+        // A glyph scaled to the stack height. transform rather than font-size, because a
+        // logo's letters are deliberately distorted vertically and font-size would scale
+        // both axes and leave gaps between the columns.
+        parts.push('<text class="lg" x="' + (x + CW / 2).toFixed(1) + '" y="0" ' +
+          'fill="' + (LOGO_GROUP[t.group] || "var(--dim)") + '" ' +
+          'transform="translate(0,' + (y + h).toFixed(1) + ') scale(1,' +
+          (h / 10).toFixed(3) + ')">' + esc(t.aa) + "</text>");
+      });
+    });
+
+    // A residue scale on the seed's own numbering, so a column here is the same column as
+    // in the conservation track, the coverage census and the motifs tab.
+    var step = usable.length > 600 ? 100 : (usable.length > 200 ? 50 : 20);
+    usable.forEach(function (c, i) {
+      if (c.pos % step) return;
+      parts.push('<line class="lgtick" x1="' + (i * CW + CW / 2) + '" y1="' + (H - PAD_B) +
+                 '" x2="' + (i * CW + CW / 2) + '" y2="' + (H - PAD_B + 5) + '"/>');
+      parts.push('<text class="lglabel" x="' + (i * CW + CW / 2) + '" y="' + (H - PAD_B + 17) +
+                 '">' + c.pos + "</text>");
+    });
+    parts.push('<line class="lgaxis" x1="0" y1="' + (H - PAD_B) + '" x2="' + W +
+               '" y2="' + (H - PAD_B) + '"/>');
+
+    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    svg.setAttribute("width", W);
+    svg.setAttribute("height", H);
+    svg.innerHTML = parts.join("");
+
+    $("logoSub").textContent = commas(usable.length) + " columns · " +
+      commas(msa.n_sequences || 0) + " sequences · mean " +
+      (msa.mean_conservation != null ? Math.round(msa.mean_conservation * 100) + "% conserved" : "");
+    $("logoIntro").innerHTML =
+      '<p class="caveat">Column height is information content in bits, at most ' +
+      MAX_BITS.toFixed(2) + " for a position where every sequence agrees, and each letter " +
+      "takes its share of that height from its own frequency. Weighted by how many entities " +
+      "used each construct, so it reports what was <b>deposited</b> rather than what evolved: " +
+      "a residue that appears in one heavily-redeposited construct is not a conserved one. " +
+      "Colour is chemistry, not conservation.</p>";
+    $("logoLegend").innerHTML = '<div class="topokey">' +
+      Object.keys(LOGO_GROUP).map(function (g) {
+        return '<span><i style="background:' + LOGO_GROUP[g] + '"></i>' + g + "</span>";
+      }).join("") + "</div>";
+  }
+
+  /* ---- the 2D fold diagram -----------------------------------------------------------
+     Laying out a fold in two dimensions is a real algorithm with a literature behind it,
+     and the PDBe already runs one across the whole archive. This asks for their answer and
+     draws it in the app's own colours: the geometry is theirs, the ink is ours. Strands and
+     helices keep the colours they have in the topology track above, so the two panels are
+     obviously the same protein rather than two unrelated pictures. */
+  function renderFold() {
+    var t = S.family.topology;
+    var d = t && t.diagram;
+    var svg = $("foldDiagram");
+    if (!svg) return;
+    if (!d || !d.extents) {
+      $("foldSub").textContent = t ? "no 2D layout for this structure" : "";
+      svg.innerHTML = "";
+      $("foldIntro").innerHTML = '<p class="empty">The PDBe publishes a two-dimensional ' +
+        "layout for most of the archive but not all of it, and none is available for " +
+        (t ? esc(t.reference) : "this structure") + ". Nothing is drawn rather than " +
+        "something invented.</p>";
+      return;
+    }
+
+    var e = d.extents;                          // [minX, minY, maxX, maxY]
+    var pad = 14;
+    var parts = [];
+
+    var poly = function (path) {
+      var out = [];
+      for (var i = 0; i + 1 < path.length; i += 2) out.push(path[i] + "," + path[i + 1]);
+      return out.join(" ");
+    };
+
+    // Coils first: they are the backbone the elements sit on, and drawing them over the
+    // top would put a grey line through every arrow.
+    (d.coils || []).forEach(function (c) {
+      if (!c.path || c.path.length < 4) return;
+      parts.push('<polyline class="fdcoil" points="' + poly(c.path) + '"/>');
+    });
+
+    (d.helices || []).forEach(function (h) {
+      if (!h.path || h.path.length < 4) return;
+      // A capsule along the helix axis, as wide as the minor axis the PDBe reports. Its
+      // own geometry, not a guess at one.
+      parts.push('<line class="fdhelix" x1="' + h.path[0] + '" y1="' + h.path[1] +
+                 '" x2="' + h.path[2] + '" y2="' + h.path[3] +
+                 '" stroke-width="' + (h.minor || 10) + '" stroke-linecap="round">' +
+                 "<title>Helix " + h.start + "\\u2013" + h.stop + "</title></line>");
+    });
+
+    (d.strands || []).forEach(function (st) {
+      if (!st.path || st.path.length < 6) return;
+      parts.push('<polygon class="fdstrand" points="' + poly(st.path) + '">' +
+                 "<title>Strand " + st.start + "\\u2013" + st.stop + "</title></polygon>");
+    });
+
+    (d.terms || []).forEach(function (tm) {
+      if (!tm.path || tm.path.length < 4) return;
+      parts.push('<polygon class="fdterm" points="' + poly(tm.path) + '"/>');
+      parts.push('<text class="fdtermlabel" x="' + tm.path[0] + '" y="' + tm.path[1] + '">' +
+                 esc(tm.type || "") + "</text>");
+    });
+
+    svg.setAttribute("viewBox", (e[0] - pad) + " " + (e[1] - pad) + " " +
+                     (e[2] - e[0] + 2 * pad) + " " + (e[3] - e[1] + 2 * pad));
+    svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+    svg.innerHTML = parts.join("");
+
+    $("foldSub").textContent = (d.strands || []).length + " strands · " +
+      (d.helices || []).length + " helices · " + t.reference +
+      (t.chain ? " chain " + t.chain : "");
+    $("foldIntro").innerHTML =
+      '<p class="caveat">Layout from the <a href="https://www.ebi.ac.uk/pdbe/api/doc/" ' +
+      'target="_blank" rel="noopener noreferrer">PDBe topology service</a> for ' +
+      '<a href="https://www.rcsb.org/structure/' + encodeURIComponent(t.reference) + '" ' +
+      'target="_blank" rel="noopener noreferrer">' + esc(t.reference) + "</a>" +
+      (t.chain ? " chain " + esc(t.chain) : "") + ", the same structure the family is " +
+      "superposed onto and the same one the track above is assigned from. Drawing a fold " +
+      "in two dimensions is an algorithm rather than a rendering, so the geometry is " +
+      "theirs; only the ink is ours. Their assignment and DSSP's agree here on " +
+      (d.strands || []).length + " strands.</p>";
+  }
+
   function renderQuality() {
     var q = S.family.quality || { n: 0, rows: [] };
     if (!q.n) {
@@ -2685,6 +2870,7 @@
     renderDisorderRuns();
     renderSeedSequence();
     renderConservation();
+    renderLogo();
     renderHeatmap();
     renderContacts();
     renderConstructs();
@@ -2696,6 +2882,7 @@
     renderAssembly();
     renderMotifs();
     renderTopology();
+    renderFold();
     renderDrugs();
     renderKnownBlocks();
 

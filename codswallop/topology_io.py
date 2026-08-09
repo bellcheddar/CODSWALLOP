@@ -16,7 +16,8 @@ from . import config
 
 logger = logging.getLogger(__name__)
 
-VERSION = 1
+# 2: carries the PDBe 2D fold diagram alongside the DSSP elements.
+VERSION = 2
 TOPOLOGY_DIR = config.DATA_DIR / "topology"
 
 

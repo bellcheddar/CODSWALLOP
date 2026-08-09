@@ -150,10 +150,15 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .drawer-face h1 {
   font-size: clamp(30px, 6vw, 46px); margin: 20px 0 6px; color: var(--text);
 }
+/* The acronym leads the page and runs the full width of the panel on one line. The reading
+   measure that suits the paragraph below it is wrong here: this is a legend, read once, and
+   breaking it mid-acronym is what the per-word nowrap spans exist to prevent. It still wraps
+   on a narrow screen, where one line would mean unreadably small type. */
 .expand {
-  font-size: 16px; color: var(--dim); line-height: 1.75; margin: 0 0 24px;
-  max-width: 52ch;
+  font-size: 15px; color: var(--dim); line-height: 1.6; margin: 0 0 10px;
+  max-width: none;
 }
+@media (min-width: 1100px) { .expand { font-size: 16px; white-space: nowrap; } }
 
 /* The ten letters that spell CODSWALLOP pulse in sequence, so the acronym assembles itself
    rather than needing to be pointed out. inline-block because transform does nothing to an
@@ -1044,3 +1049,31 @@ a.dchip:hover { border-color: var(--accent); color: var(--text); text-decoration
   border-radius: var(--radius); padding: 5px 12px; cursor: pointer;
 }
 .morebtn:hover { color: var(--brass); border-color: var(--brass); }
+
+/* The sequence logo. Letters are scaled on one axis only, which is what makes a logo a logo:
+   font-size would scale both and leave gaps between the columns. */
+.logowrap { overflow-x: auto; padding: 4px 0 2px; }
+#seqLogo { display: block; height: auto; }
+#seqLogo .lg {
+  font-family: var(--mono); font-size: 13px; font-weight: 700;
+  text-anchor: middle; dominant-baseline: alphabetic;
+}
+#seqLogo .lgaxis { stroke: var(--line); stroke-width: 1; }
+#seqLogo .lgtick { stroke: var(--line); stroke-width: 1; }
+#seqLogo .lglabel {
+  fill: var(--mute); font-family: var(--mono); font-size: 10px; text-anchor: middle;
+}
+
+/* The 2D fold diagram. Same colours as the topology track directly above it, so the two
+   panels are obviously the same protein rather than two unrelated pictures. */
+.foldwrap { overflow: auto; max-height: 620px; padding: 4px 0; }
+#foldDiagram { width: 100%; height: 560px; display: block; }
+.fdcoil  { fill: none; stroke: var(--line); stroke-width: 2.5; stroke-linejoin: round; }
+.fdhelix { stroke: var(--violet); opacity: .92; }
+.fdstrand { fill: var(--accent); opacity: .95; stroke: none; }
+.fdterm  { fill: var(--brass); }
+.fdtermlabel {
+  fill: var(--on-brass); font-family: var(--mono); font-size: 9px; font-weight: 700;
+  text-anchor: middle; dominant-baseline: central;
+}
+.fdstrand:hover, .fdhelix:hover { opacity: 1; }

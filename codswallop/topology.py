@@ -29,7 +29,7 @@ from typing import Optional
 
 from Bio.Align import PairwiseAligner, substitution_matrices
 
-from . import embed, topology_io
+from . import embed, http, topology_io
 from .topology_io import TOPOLOGY_DIR, VERSION
 
 logger = logging.getLogger(__name__)
@@ -257,6 +257,80 @@ def _pairings(records: list[dict], elements: list[dict]) -> list[dict]:
             for (a, b), n in sorted(counts.items(), key=lambda kv: -kv[1]) if n >= 2]
 
 
+PDBE_TOPOLOGY_URL = "https://www.ebi.ac.uk/pdbe/api/topology/entry/{pdb_id}"
+
+
+def pdbe_diagram(pdb_id: str, chain: Optional[str]) -> Optional[dict]:
+    """PDBe's own 2D topology layout for one chain: strands, helices, coils and termini.
+
+    Not drawn here. Laying out a fold in two dimensions is a real algorithm with a
+    literature behind it, and the PDBe already runs one over the whole archive: this asks
+    for the answer rather than inventing a worse one. What comes back is geometry, in the
+    form of SVG coordinate paths, so the drawing is ours and the science is theirs.
+
+    Independently checked against the DSSP run above: PDBe reports 3 strands for lysozyme
+    1AKI and so does DSSP, which is the agreement worth having between two assignments made
+    by different programs.
+    """
+    from . import db
+
+    # Cached by hand rather than through `db.cached`, to keep two different answers apart.
+    # "The PDBe has no topology for this entry" is a result and is worth remembering; "the
+    # request failed" is not, and caching it poisons the entry permanently. That is exactly
+    # what happened here: one transient error on the first call, and every later build read
+    # back a cached None and reported the diagram as unavailable for a structure the PDBe
+    # was serving perfectly well.
+    # Its own key namespace. `db.cached` wraps every value in a one-element list so that a
+    # cached None is not refetched forever, and reading its entries directly hands back the
+    # wrapper: the first attempt at this returned [None] and the diagram came out as a list.
+    # Two caching schemes must not share a key.
+    key = db.cache_key("pdbe_topo_raw", VERSION, pdb_id.upper(), chain or "")
+    hit = db.cache_get(key)
+    if isinstance(hit, dict):
+        return None if hit.get("none") else hit
+
+    def fetch():
+        try:
+            body = http.get_json(PDBE_TOPOLOGY_URL.format(pdb_id=pdb_id.lower()))
+        except Exception:                       # noqa: BLE001
+            logger.warning("PDBe topology request failed for %s; not caching", pdb_id)
+            raise
+        entry = (body or {}).get(pdb_id.lower()) or {}
+        # Keyed by entity id then chain. The chain we superposed on is the one to draw, and
+        # anything else would be a diagram of a different molecule in the same crystal.
+        for _entity, chains in entry.items():
+            if not isinstance(chains, dict):
+                continue
+            got = chains.get(chain) if chain else None
+            if got is None and chains:
+                got = next(iter(chains.values()))
+            if not got:
+                continue
+            return {
+                "extents": got.get("extents"),
+                "strands": [{"start": x.get("start"), "stop": x.get("stop"),
+                             "path": x.get("path")} for x in got.get("strands") or []],
+                "helices": [{"start": x.get("start"), "stop": x.get("stop"),
+                             "path": x.get("path"), "major": x.get("majoraxis"),
+                             "minor": x.get("minoraxis")} for x in got.get("helices") or []],
+                "coils": [{"path": x.get("path")} for x in got.get("coils") or []],
+                "terms": [{"type": x.get("type"), "resnum": x.get("resnum"),
+                           "path": x.get("path")} for x in got.get("terms") or []],
+            }
+        return {"none": True}          # the PDBe genuinely has nothing for this chain
+
+    try:
+        got = fetch()
+    except Exception:                           # noqa: BLE001
+        # Logged with the traceback, not swallowed to a one-line note: a diagram that is
+        # quietly absent is indistinguishable from one the PDBe does not have, and the two
+        # want different responses.
+        logger.warning("PDBe topology unavailable for %s %s", pdb_id, chain, exc_info=True)
+        return None                             # transient: try again next build
+    db.cache_put(key, got)
+    return None if got.get("none") else got
+
+
 def build(fam: dict) -> Optional[dict]:
     """The topology artefact for one family, computed from its reference structure."""
     slug = fam["slug"]
@@ -306,6 +380,9 @@ def build(fam: dict) -> Optional[dict]:
         "version": VERSION,
         "slug": slug,
         "reference": pdb_id,
+        # The 2D fold layout, from the PDBe. Absent is a real answer: not every entry has
+        # one, and drawing something else in its place would be worse than saying so.
+        "diagram": pdbe_diagram(pdb_id, chain),
         "chain": chain,
         "method": method,
         "seed_length": len(seed),

@@ -297,7 +297,8 @@
     <tr>
       <td class="n">{{ c.year or "" }}</td>
       <td>{{ c.title }}{% if c.journal %} <i>{{ c.journal }}</i>{% endif %}
-        {%- if c.doi %} <span class="mono">doi:{{ c.doi }}</span>{% endif %}</td>
+        {%- if c.doi %} <a class="mono" href="https://doi.org/{{ c.doi|urlencode }}"
+          target="_blank" rel="noopener noreferrer">doi:{{ c.doi }}</a>{% endif %}</td>
     </tr>
   {% endfor %}
   </tbody>
