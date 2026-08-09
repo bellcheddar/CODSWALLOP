@@ -2431,10 +2431,59 @@
                  "<title>Helix " + h.start + "\\u2013" + h.stop + "</title></line>");
     });
 
+    /* Strands drawn as upright arrows rather than at the angle the PDBe lays them out at.
+     *
+     * This substitutes our geometry for theirs, so it is worth being clear about what is
+     * kept and what is thrown away. Kept: where the strand sits in the fold, how long it is,
+     * and whether it runs up or down, which is what makes a sheet read as parallel or
+     * antiparallel and is the part a reader is actually looking for. Thrown away: the
+     * in-plane angle, which in a projection of a curved sheet is largely an artefact of the
+     * projection anyway. Upright arrows in a row is the convention every hand-drawn topology
+     * cartoon uses, for the same reason.
+     *
+     * The residue range and the original angle both stay in the tooltip, so nothing that was
+     * on the diagram before has been lost, only moved.
+     */
+    var arrow = function (path) {
+      var xs = [], ys = [], i;
+      for (i = 0; i + 1 < path.length; i += 2) { xs.push(path[i]); ys.push(path[i + 1]); }
+      var cx = 0, cy = 0;
+      for (i = 0; i < xs.length; i++) { cx += xs[i]; cy += ys[i]; }
+      cx /= xs.length; cy /= ys.length;
+
+      // Long axis from the widest separation of any two vertices, and the apex from the
+      // vertex furthest out: on the PDBe's arrow polygons that is the head, which is what
+      // tells us which way the strand runs.
+      var len = 0, apex = 0, far = -1;
+      for (i = 0; i < xs.length; i++) {
+        var dd = (xs[i] - cx) * (xs[i] - cx) + (ys[i] - cy) * (ys[i] - cy);
+        if (dd > far) { far = dd; apex = i; }
+        for (var j = i + 1; j < xs.length; j++) {
+          var d2 = (xs[i] - xs[j]) * (xs[i] - xs[j]) + (ys[i] - ys[j]) * (ys[i] - ys[j]);
+          if (d2 > len) len = d2;
+        }
+      }
+      len = Math.sqrt(len);
+      // Width from the polygon's short side, floored so a stubby strand is still visible.
+      var w = Math.max(4, Math.min(9, len / 4));
+      var up = ys[apex] <= cy ? -1 : 1;         // SVG y grows downward
+      var half = len / 2;
+      var head = Math.min(half, Math.max(5, len * 0.32));
+      var tipY = cy + up * half;
+      var neckY = cy + up * (half - head);
+      var baseY = cy - up * half;
+      return [
+        cx - w / 2, baseY, cx + w / 2, baseY,
+        cx + w / 2, neckY, cx + w, neckY,
+        cx, tipY, cx - w, neckY, cx - w / 2, neckY,
+      ].join(" ").replace(/(\S+) (\S+)( |$)/g, "$1,$2 ");
+    };
+
     (d.strands || []).forEach(function (st) {
       if (!st.path || st.path.length < 6) return;
-      parts.push('<polygon class="fdstrand" points="' + poly(st.path) + '">' +
-                 "<title>Strand " + st.start + "\\u2013" + st.stop + "</title></polygon>");
+      parts.push('<polygon class="fdstrand" points="' + arrow(st.path) + '">' +
+                 "<title>Strand " + st.start + "–" + st.stop +
+                 " (drawn upright; the PDBe lays it out at an angle)</title></polygon>");
     });
 
     (d.terms || []).forEach(function (tm) {
