@@ -1,0 +1,13 @@
+[Unit]
+Description=Drain the CODSWALLOP artefact queue
+
+[Timer]
+# Every fifteen minutes, so a family a reader opens is embedded within the quarter hour
+# rather than whenever a laptop next wakes up. The worker takes the lock or exits, so a
+# long family simply means the next few firings do nothing.
+OnBootSec=5min
+OnUnitActiveSec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

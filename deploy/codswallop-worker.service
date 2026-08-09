@@ -1,0 +1,20 @@
+[Unit]
+Description=CODSWALLOP artefact worker (embeddings for families readers have asked for)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/codswallop/deploy/worker.sh
+# Belt and braces alongside the nice in the script: the web workers must keep their core.
+Nice=15
+IOSchedulingClass=idle
+CPUWeight=20
+# The box has 3.9 GB and no swap. A single family peaks at about 100 MB through the
+# per-chain route, so this is a fuse against a regression putting the whole-file parser
+# back rather than a working limit: 6.3 GB was the old peak, and an OOM here would take
+# the other eight apps with it.
+MemoryMax=900M
+TimeoutStartSec=7200
+
+[Install]
+WantedBy=multi-user.target
