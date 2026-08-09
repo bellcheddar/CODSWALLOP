@@ -241,3 +241,21 @@ def test_human_leads_the_candidates_even_when_alphabetically_late():
         {"accession": "C", "reviewed": False, "organism": "Homo sapiens", "name": "A"},
     ])
     assert [h["accession"] for h in hits] == ["B", "A", "C"]
+
+
+def test_the_free_text_path_is_ranked_too_not_only_the_gene_path(monkeypatch):
+    """The gene fix left multi-word searches unranked, which is the other half of the same
+    complaint: "vascular endothelial growth factor receptor" put Mus musculus first and a
+    snake third, with the human protein below both. Ranking lives in `search` so every
+    caller gets it rather than each having to remember to ask."""
+    from codswallop import db, uniprot
+
+    monkeypatch.setattr(db, "cached", lambda key, fetch: [
+        {"accession": "P97946", "reviewed": True, "organism": "Mus musculus", "name": "B"},
+        {"accession": "P49767", "reviewed": True, "organism": "Homo sapiens", "name": "C"},
+        {"accession": "X1", "reviewed": False, "organism": "Homo sapiens", "name": "A"},
+    ])
+    hits = uniprot.search("vascular endothelial growth factor receptor")
+    assert hits[0]["organism"] == "Homo sapiens", "the free-text path is still unranked"
+    assert hits[0]["reviewed"] is True
+    assert hits[-1]["accession"] == "X1", "unreviewed must still sink below reviewed"

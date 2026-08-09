@@ -116,7 +116,14 @@ def search(query: str, size: int = 12) -> list[dict]:
                 break
         return out[:size]
 
-    return db.cached(("uniprot_search", PARSE_VERSION, query, size), fetch) or []
+    # Ranked on the way OUT of the cache, not on the way in, so changing the ordering rule
+    # never needs a cache version bump. Every caller gets it: `by_gene` ranks again after
+    # merging its two queries, which is harmless because the sort is idempotent, and the
+    # free-text path gets it without having to remember to ask. That path is why this is
+    # here rather than in `by_gene` alone: searching "vascular endothelial growth factor
+    # receptor" put Mus musculus first and a snake third, with the human protein below both.
+    return rank_candidates(db.cached(("uniprot_search", PARSE_VERSION, query, size), fetch)
+                           or [])
 
 
 def by_gene(gene: str, size: int = 12) -> list[dict]:
