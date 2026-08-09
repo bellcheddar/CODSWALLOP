@@ -33,7 +33,10 @@ from . import config, db, http
 logger = logging.getLogger(__name__)
 
 # Part of every cache key here. See rcsb.PARSE_VERSION for what forgetting it costs.
-MOTIF_VERSION = 1
+# 2: a PDB-seeded family now gets UniProt's curated sites too, aligned onto its own seed
+#    rather than skipped. Every family cached at 1 was scanned before that existed, so a
+#    PDB-seeded one holds an empty curated set that is a stale answer, not a real one.
+MOTIF_VERSION = 2
 
 SCANPROSITE_URL = "https://prosite.expasy.org/cgi-bin/prosite/scanprosite/PSScan.cgi"
 INTERPRO_PROSITE_URL = "https://www.ebi.ac.uk/interpro/api/entry/prosite/{ac}"

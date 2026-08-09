@@ -164,3 +164,54 @@ def test_concentration_is_reported_against_every_entry_not_only_the_cited_ones()
 def test_an_empty_family_does_not_raise():
     out = provenance.build_people([])
     assert out["n_groups"] == 0 and out["timeline"] == [] and out["span"] is None
+
+
+# ---------------------------------------------------------------------------------------
+# Curated sites on a seed that is not the canonical sequence.
+# ---------------------------------------------------------------------------------------
+
+def test_uniprot_features_land_on_a_mature_seed_by_alignment(monkeypatch):
+    """A PDB-seeded family used to get no curated sites at all: `lysozyme-1aki-1` showed no
+    active site and no disulphides while `lysozyme-c-p00698`, the same protein, showed both.
+
+    The guard existed for a real reason. UniProt numbers on the canonical, and a PDB-seeded
+    family's seed is typically the mature protein: hen lysozyme is 129 residues against the
+    canonical's 147, so every feature is eighteen out. Shifting by a fixed 18 would be the
+    assumed-offset mistake that has already cost this codebase two panels, so it aligns.
+    """
+    from codswallop import family, uniprot
+
+    canonical = "MRSLLILVLCFLPLAALG" + "KVFGRCELAAAMKRHGLDNYRGYSLGNWVCAAKFESNFNTQATNRNTDGSTDYGILQINSRWWCNDGRTPGSRNLCNIPCSALLSSDITASVNCAKKIVSDGNGMNAWVAWRNRCKGTDVQAWIRGCRL"
+    mature = canonical[18:]
+    fam = {"kind": "pdb_id", "seed": "1AKI_1", "seed_sequence": mature,
+           "members": [{"entity_id": "1AKI_1", "uniprot": "P00698"}]}
+    feats = {
+        "active_site": [53, 70],
+        "signal_peptide": [{"start": 1, "end": 18, "description": ""}],
+        "disulphide": [{"start": 24, "end": 145, "description": ""}],
+    }
+    monkeypatch.setattr(uniprot, "entry_with_features",
+                        lambda acc: ({"sequence": canonical}, feats))
+
+    out = family._features_on_seed(fam)
+    # Glu35 and Asp52 are hen lysozyme's catalytic pair in mature numbering.
+    assert out["active_site"] == [35, 52]
+    assert mature[34] == "E" and mature[51] == "D"
+    # Cys6-Cys127 is the mature form of the canonical's 24-145.
+    assert out["disulphide"] == [{"start": 6, "end": 127, "description": ""}]
+    # The signal peptide is entirely outside the mature protein and is dropped whole rather
+    # than clamped to a shorter peptide that does not exist.
+    assert out["signal_peptide"] == []
+    assert all(isinstance(p, int) for p in out["active_site"]), \
+        "numpy integers are not JSON-serialisable and would fail at render time"
+
+
+def test_features_are_not_moved_onto_a_seed_that_is_a_different_protein(monkeypatch):
+    from codswallop import family, uniprot
+    monkeypatch.setattr(uniprot, "entry_with_features",
+                        lambda acc: ({"sequence": "MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQ"},
+                                     {"active_site": [5]}))
+    fam = {"kind": "pdb_id", "seed": "9XYZ_1",
+           "seed_sequence": "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
+           "members": [{"entity_id": "9XYZ_1", "uniprot": "P00000"}]}
+    assert family._features_on_seed(fam) == {}

@@ -860,7 +860,82 @@ def build_motifs(fam: dict) -> dict:
             feats = uniprot.features(seed) or {}
         except Exception:                       # noqa: BLE001
             logger.warning("no UniProt features for %s", seed, exc_info=True)
+    else:
+        # A family seeded on a PDB entry rather than an accession used to get no curated
+        # sites at all: `lysozyme-1aki-1` showed no active site and no disulphides while
+        # `lysozyme-c-p00698`, the same protein, showed both. The guard was there for a real
+        # reason, since UniProt's positions are on the CANONICAL sequence and a PDB-seeded
+        # family's seed is whatever that entity was, typically the mature protein: hen
+        # lysozyme is 129 residues against the canonical's 147, so the features are eighteen
+        # out. Skipping them was safe and lost the panel; shifting them by a fixed 18 would
+        # be the assumed-offset mistake that has already cost this codebase two panels.
+        feats = _features_on_seed(fam)
     return motif_engine.build(fam, feats)
+
+
+def _features_on_seed(fam: dict) -> dict:
+    """UniProt's curated features, moved onto a seed that is not the canonical sequence.
+
+    Aligned, never offset. The seed may be the mature protein, a single domain, or a
+    construct numbered from 1, and each of those is a different shift; an alignment finds
+    whichever it is, and finds nothing when the two are not the same protein.
+    """
+    members = fam.get("members") or []
+    names = _seed_names(fam, members)
+    accession = names.get("accession")
+    seed_seq = fam.get("seed_sequence") or ""
+    if not accession or not seed_seq:
+        return {}
+    try:
+        rec, feats = uniprot.entry_with_features(accession)
+    except Exception:                           # noqa: BLE001
+        logger.warning("no UniProt features for %s", accession, exc_info=True)
+        return {}
+    canonical = (rec or {}).get("sequence") or ""
+    if not canonical or not feats:
+        return {}
+
+    from .constructs import _ALIGNER, _alignable
+    try:
+        aln = _ALIGNER.align(_alignable(canonical), _alignable(seed_seq))[0]
+    except Exception:                           # noqa: BLE001
+        return {}
+    # canonical position (1-based) -> seed position (1-based)
+    mapping, matches, pairs = {}, 0, 0
+    for (c0, c1), (s0, s1) in zip(aln.aligned[0], aln.aligned[1]):
+        for k in range(c1 - c0):
+            # int(), because Biopython's aligned blocks are numpy integers and a numpy int
+            # is not JSON-serialisable: the panel would build correctly and then take the
+            # whole family down at render time.
+            mapping[int(c0) + k + 1] = int(s0) + k + 1
+            pairs += 1
+            if canonical[c0 + k] == seed_seq[s0 + k]:
+                matches += 1
+    # The same agreement floor the conservation colouring uses, and for the same reason: a
+    # seed that is not this protein must come back with nothing rather than with sites moved
+    # onto whichever residues the aligner happened to pair them with.
+    if not pairs or matches / pairs < 0.6:
+        return {}
+
+    out: dict = {}
+    for kind, positions in feats.items():
+        moved = []
+        for f in positions or []:
+            # Two shapes, both from `uniprot._features_from`: a single-residue kind is a bare
+            # integer, a ranged one is a dict carrying start, end and a description.
+            if isinstance(f, dict):
+                beg, end = mapping.get(f.get("start")), mapping.get(f.get("end"))
+                # A feature only partly inside the seed is dropped whole. Half a signal
+                # peptide is not a shorter signal peptide, and a disulphide with one of its
+                # cysteines missing is not a bond.
+                if beg and end:
+                    moved.append({**f, "start": beg, "end": end})
+            else:
+                q = mapping.get(f)
+                if q:
+                    moved.append(q)
+        out[kind] = moved
+    return out
 
 
 def build_assemblies(entries: list[dict]) -> dict:

@@ -370,7 +370,24 @@ def _rebuild_contacts(artefacts, args) -> bool:
                 print(f"  skip  {s['slug']}: {r.get('message') or 'ambiguous'}", flush=True)
                 continue
             fam = family.get_or_build(r["seed"], s["query"])
-            art = contact_engine.build(fam, max_entries=args.max_contacts)
+
+            # A heartbeat per ENTRY, not only per family. PLIP takes one to three minutes on
+            # a large structure, so a forty-entry family goes an hour without printing
+            # anything, and a healthy run is indistinguishable from a hung one: the spike
+            # rebuild sat silent for thirty-five minutes and I read it as a stall. Throttled
+            # to one line a minute so a small family stays a single line.
+            beat = {"last": 0.0}
+
+            def heartbeat(i, total, pdb_id, _s=s, _beat=beat):
+                now = time.time()
+                if now - _beat["last"] < 60:
+                    return
+                _beat["last"] = now
+                print(f"  ....  {_s['slug']:<44} entry {i:>3}/{total} ({pdb_id})",
+                      flush=True)
+
+            art = contact_engine.build(fam, max_entries=args.max_contacts,
+                                       progress=heartbeat)
             if not art:
                 print(f"  skip  {s['slug']}: nothing ligand-bound to profile", flush=True)
                 continue
