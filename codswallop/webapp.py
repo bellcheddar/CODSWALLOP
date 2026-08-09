@@ -22,7 +22,7 @@ from flask import (
     Flask, abort, jsonify, redirect, render_template, request, url_for,
 )
 
-from . import config, db, family as family_mod, resolve as resolve_mod
+from . import api, config, db, family as family_mod, resolve as resolve_mod
 
 # --------------------------------------------------------------------------------------
 # The divider rail. Every phase's section from day one: the rail is the roadmap, and
@@ -211,6 +211,55 @@ def create_app() -> Flask:
             return jsonify({"error": f"The build failed: {exc}"}), 502
 
         return jsonify(fam)
+
+    # ---- v1: the summary other projects build against ---------------------------------
+    # Separate from /api/family, which is the front end's own payload and changes with it.
+    # These two endpoints are a contract: see codswallop/api.py.
+    def _cors(payload, status=200):
+        resp = jsonify(payload)
+        resp.status_code = status
+        # Public, read-only, no credentials: a browser-side consumer (chatPDB) would
+        # otherwise be unable to call this at all, and there is nothing here to protect.
+        resp.headers["Access-Control-Allow-Origin"] = "*"
+        return resp
+
+    @app.route("/api/v1/families")
+    def api_v1_families():
+        """What this instance has filed. The entry point: a consumer that knows a protein
+        but not a slug starts here rather than guessing the slug format."""
+        rows = db.recent_families(limit=500)
+        return _cors({
+            "schema_version": api.SCHEMA_VERSION,
+            "count": len(rows),
+            "families": [
+                {"slug": r["slug"], "name": r["name"], "organism": r["organism"],
+                 "kind": r["kind"], "entries": r["n_entries"], "built_at": r["built_at"]}
+                for r in rows
+            ],
+        })
+
+    @app.route("/api/v1/family/<slug>")
+    def api_v1_family(slug):
+        """One family, summarised.
+
+        A family that is not already filed is NOT assembled here, for the same reason the
+        dossier does not: assembly takes up to ninety seconds, and an endpoint meant to be
+        polled by another program is exactly what would be hammering it. The 404 says which
+        URL will build it.
+        """
+        if not db.family_fresh(slug):
+            return _cors({
+                "error": "not filed",
+                "detail": "This family has not been assembled on this instance. "
+                          "Open it once in the app, or call /api/family/<slug>?q=<query>, "
+                          "and it will be available here afterwards.",
+                "slug": slug,
+            }, 404)
+        fam = db.load_family(slug)
+        if fam is None:
+            return _cors({"error": "not filed", "slug": slug}, 404)
+        return _cors(api.summarise(family_mod.decorate(fam),
+                                   base_url=request.url_root.rstrip("/")))
 
     @app.route("/api/stats")
     def api_stats():
