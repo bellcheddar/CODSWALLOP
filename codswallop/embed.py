@@ -167,7 +167,12 @@ def pairwise_tm(traces: list[tuple], progress=None) -> np.ndarray:
                 score = 0.0
             tm[i, j] = tm[j, i] = score
             done += 1
-            if progress and done % 200 == 0:
+            # Every ten pairs, not every two hundred. The consumer throttles by time, and
+            # it is the only one that can: a pair of 60-residue chains aligns in a
+            # millisecond and a pair of 766-residue ones takes a second and a half, so any
+            # fixed pair count is either noise on small families or five minutes of silence
+            # on large ones. Reporting is a function call; throttling is the caller's job.
+            if progress and done % 10 == 0:
                 progress("align", done, total, "")
     return tm
 
