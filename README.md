@@ -65,6 +65,14 @@ They are **9J0L** and **9J0M**, cryo-EM structures of hen lysozyme **amyloid fib
 
 Same protein, same sequence, a completely different fold: native lysozyme refolded into a cross-β fibril. **No sequence-based view of this family can find them**, because there is nothing in the sequence to find. They are 100% identical to the seed, so an identity slider puts them at the top of the list along with everything else, and the identity layout the map falls back to places them in the middle of the crowd. Only a structural distance separates them, and only a family-centric one makes it obvious that it is two entries out of 1,688 rather than a general property of lysozyme.
 
+### What the map is not
+
+Two limits worth stating, because a scatter plot of points looks like a measurement whatever produced it.
+
+**It is a shadow, not the thing.** The map is two dimensions of an object that has as many as the family has representatives. Across the 70 built families the first two principal coordinates carry a median of **65%** of the positive eigenvalue mass, and as little as **33%** (the beta-2 adrenergic receptor, tau, insulin, calmodulin). Two structures drawn close together are close in the projection; on a low-variance family they may be further apart than they look. The heatmap in the Structures panel is the higher-fidelity view of the same matrix, which is why both exist.
+
+**1 &minus; TM is not a Euclidean distance**, so the Gram matrix has negative eigenvalues: a median of **19%** of the positive mass, up to **49%**. They are clamped to zero rather than the build failing, which is the standard treatment and is honest as far as it goes, but it means the embedding is an approximation of a geometry that does not strictly exist. Reading distance qualitatively (near, far, off on its own) is safe. Reading it as a metric is not, and there is nothing on the panel to stop you: use the TM-score matrix itself for anything quantitative.
+
 This is also why the panel is fitted the way it is. Those two points sit at x = -1.0 while every other representative spans -0.036 to +0.046, so fitting the panel to the furthest point put the entire native family inside 5.4% of its width: a map of one curiosity and a smudge. The fit uses a high quantile with headroom instead, and pins anything beyond it to the rim with its true distance in the tooltip, so the outlier stays visible and stays findable without costing the other 1,686 structures their map.
 
 ## 🧱 Stack
