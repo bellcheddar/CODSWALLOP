@@ -592,16 +592,26 @@
       if (!data || !data.cell || !data.cell.obj) return false;
       var struct = data.cell.obj.data;
 
-      var Q = lib.structure.Script;
-      var sel = Q.getStructureSelection(function (Qb) {
-        return Qb.struct.generator.atomGroups({
-          "residue-test": Qb.core.rel.eq([
-            Qb.struct.atomProperty.macromolecular.auth_seq_id(), seqNumber,
-          ]),
-        });
-      }, struct);
-      var loci = lib.structure.StructureSelection.toLociWithSourceUnits(sel);
-      if (!loci || loci.kind === "empty-loci") return false;
+      // A predicate query, not MolScript. `lib.structure.Script` does not exist in the
+      // bundled Mol*: this build exposes only structure, volume, shape, loci, math, plugin
+      // and extensions, so every call here threw and the catch below returned false. The
+      // Contacts panel has invited the reader to "click a residue to focus it in the 3D
+      // viewer" for as long as it has existed and nothing has ever happened.
+      //
+      // The tests take the query CONTEXT and not a location, which is the other half of why
+      // a plausible-looking rewrite still fails: read `ctx.element`.
+      var S = lib.structure;
+      var P = S.StructureProperties;
+      var q = S.Queries.generators.atoms({
+        residueTest: function (ctx) {
+          return P.residue.auth_seq_id(ctx.element) === seqNumber;
+        },
+      });
+      var sel = q(new S.QueryContext(struct));
+      var loci = S.StructureSelection.toLociWithSourceUnits(sel);
+      if (!loci || loci.kind === "empty-loci" || !S.StructureElement.Loci.size(loci)) {
+        return false;
+      }
 
       plugin.managers.interactivity.lociSelects.selectOnly({ loci: loci });
       plugin.managers.camera.focusLoci(loci);
