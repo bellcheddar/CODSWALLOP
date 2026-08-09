@@ -1134,3 +1134,18 @@ a.dchip:hover { border-color: var(--accent); color: var(--text); text-decoration
   text-anchor: middle; dominant-baseline: central;
 }
 .fdstrand:hover, .fdhelix:hover { opacity: 1; }
+
+/* A run of the seed sequence quoted inside a detail drawer. Mono, wrapping, and boxed so a
+   forty-residue transmembrane span does not run out of the panel. */
+.seqbit {
+  font-family: var(--mono); font-size: 11.5px; line-height: 1.7; color: var(--text);
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: 4px;
+  padding: 4px 6px; display: inline-block; max-width: 100%;
+  overflow-wrap: anywhere; word-break: break-all;
+}
+/* The detail drawer's two-column tables: a narrow label column so the value gets the room. */
+#detailBody .ctable th {
+  text-align: left; white-space: nowrap; vertical-align: top;
+  width: 1%; padding-right: 14px; color: var(--dim); font-weight: 500;
+}
+#detailBody .ctable td { vertical-align: top; }

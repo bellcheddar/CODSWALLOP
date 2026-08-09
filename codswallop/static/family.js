@@ -1763,8 +1763,8 @@
       '<div class="tablewrap"><table class="ctable"><thead><tr>' +
       "<th>Deposited as</th><th>Entities</th><th>Share</th><th>Recognised as</th>" +
       "</tr></thead><tbody>" +
-      n.rows.map(function (r) {
-        return "<tr><td><b>" + esc(r.name) + "</b>" +
+      n.rows.map(function (r, idx) {
+        return '<tr class="drow" data-provname="' + idx + '"><td><b>' + esc(r.name) + "</b>" +
           (r.variants > 1 ? ' <span class="dim">+' + (r.variants - 1) +
             " case variant" + (r.variants > 2 ? "s" : "") + "</span>" : "") + "</td>" +
           '<td class="n">' + commas(r.n) + "</td>" +
@@ -1790,8 +1790,8 @@
       "holds.</p>" +
       '<div class="tablewrap"><table class="ctable"><thead><tr>' +
       "<th>Name</th><th>Proteins</th><th>Split</th></tr></thead><tbody>" +
-      n.collisions.map(function (c) {
-        return "<tr><td><b>" + esc(c.name) + "</b></td>" +
+      n.collisions.map(function (c, idx) {
+        return '<tr class="drow" data-provcoll="' + idx + '"><td><b>' + esc(c.name) + "</b></td>" +
           '<td class="n">' + c.accessions.length + "</td><td>" +
           c.accessions.slice(0, 6).map(function (a) {
             return '<span class="chip"><a href="https://www.uniprot.org/uniprotkb/' +
@@ -1845,8 +1845,8 @@
       '<div class="tablewrap"><table class="ctable"><thead><tr>' +
       "<th>Group (last author)</th><th>Entries</th><th>Papers</th><th>Active</th>" +
       "<th>Best</th><th>Most frequent first author</th></tr></thead><tbody>" +
-      p.rows.map(function (r) {
-        return "<tr><td><b>" + esc(r.pi) + "</b></td>" +
+      p.rows.map(function (r, idx) {
+        return '<tr class="drow" data-provgroup="' + idx + '"><td><b>' + esc(r.pi) + "</b></td>" +
           '<td class="n">' + commas(r.entries) + "</td>" +
           '<td class="n">' + commas(r.papers) + "</td>" +
           '<td class="n">' + (r.first ? r.first + (r.last !== r.first ? "–" + r.last : "") : "—") + "</td>" +
@@ -1883,8 +1883,9 @@
       '<div class="tablewrap"><table class="ctable"><thead><tr>' +
       "<th>Oligomeric state</th><th>Chains</th><th>Entries</th><th>Share</th><th>&nbsp;</th>" +
       "</tr></thead><tbody>" +
-      a.states.map(function (s) {
-        return "<tr><td><b>" + esc(s.details || (s.count + "-mer")) + "</b></td>" +
+      a.states.map(function (s, idx) {
+        return '<tr class="drow" data-asmstate="' + idx + '"><td><b>' +
+          esc(s.details || (s.count + "-mer")) + "</b></td>" +
           '<td class="n">' + s.count + "</td>" +
           '<td class="n">' + commas(s.entries) + "</td>" +
           '<td class="n">' + s.fraction.toFixed(1) + "%</td>" +
@@ -2030,9 +2031,9 @@
       "<th>Site</th><th>Where</th><th>Source</th>" +
       (m.grounded ? "<th>In constructs</th><th>Resolved</th>" : "") +
       "</tr></thead><tbody>" +
-      m.rows.map(function (r) {
+      m.rows.map(function (r, idx) {
         var where = r.start === r.end ? String(r.start) : r.start + "&ndash;" + r.end;
-        return "<tr>" +
+        return '<tr class="drow" data-motif="' + idx + '">' +
           "<td><b>" + esc(r.name) + "</b>" +
           (r.description && r.description !== r.name
             ? ' <span class="n">' + esc(r.description) + "</span>" : "") + "</td>" +
@@ -2684,7 +2685,7 @@
     var byPos = {};
     m.columns.forEach(function (c) { byPos[c.pos] = c; });
     var rows = eng.slice(0, 150).map(function (e) {
-      return "<tr>" +
+      return '<tr class="drow" data-engpos="' + e.pos + '">' +
         '<td class="n">' + esc(e.seed) + e.pos + "</td>" +
         '<td class="n">' + Math.round(e.substituted * 1000) / 10 + "%</td>" +
         '<td class="n">' + (e.conservation == null ? "—" : e.conservation) + "</td>" +
@@ -3177,6 +3178,142 @@
     $("filing").hidden = false;
   }
 
+  /* ---- detail drawers for the panels that only had rows ------------------------------
+     Same chrome as the entry card and the construct/ligand/hot-residue drawers, because a
+     reader should not have to learn a second way of asking "what is this row actually". */
+
+  function dl(rows) {
+    return '<div class="tablewrap"><table class="ctable"><tbody>' +
+      rows.filter(function (r) { return r && r[1] != null && r[1] !== ""; })
+          .map(function (r) {
+            return "<tr><th>" + esc(r[0]) + "</th><td>" + (r[2] ? r[1] : esc(String(r[1]))) +
+              "</td></tr>";
+          }).join("") + "</tbody></table></div>";
+  }
+
+  function uniprotLink(acc) {
+    return '<a href="https://www.uniprot.org/uniprotkb/' + encodeURIComponent(acc) +
+      '" target="_blank" rel="noopener noreferrer">' + esc(acc) + "</a>";
+  }
+
+  function openMotifDetail(idx) {
+    var r = ((S.family.motifs || {}).rows || [])[idx];
+    if (!r) return;
+    var span = r.start === r.end ? String(r.start) : r.start + "–" + r.end;
+    var seq = S.family.seed_sequence || "";
+    var residues = seq.slice(Math.max(0, r.start - 1), r.end);
+    openDetail(r.name || r.kind || "Site", r.source + " · " + r.standing, dl([
+      ["Kind", r.kind],
+      ["Seed positions", span],
+      ["Residues", residues ? '<code class="seqbit">' + esc(residues) + "</code>" : null, true],
+      ["Length", r.residues ? r.residues + (r.residues === 1 ? " residue" : " residues") : null],
+      ["Description", r.description],
+      ["Evidence", r.source === "UniProt"
+        ? "Curated: somebody read a paper about this protein and recorded it."
+        : "Predicted: a pattern matched this sequence. It is a hypothesis, not a finding."],
+      ["In constructs", r.in_constructs != null
+        ? r.in_constructs + "% of this family's constructs contain it" : null],
+      ["Resolved", r.resolved != null
+        ? r.resolved + "% of the constructs that contain it actually resolve it" : null],
+      ["Accession", r.accession ? '<a href="https://prosite.expasy.org/' +
+        encodeURIComponent(r.accession) + '" target="_blank" rel="noopener noreferrer">' +
+        esc(r.accession) + "</a>" : null, true],
+    ]));
+  }
+
+  function openEngineeredDetail(pos) {
+    var m = S.family.msa || {};
+    var e = null, col = null;
+    (m.engineered || []).forEach(function (x) { if (x.pos === pos) e = x; });
+    (m.columns || []).forEach(function (c) { if (c.pos === pos) col = c; });
+    if (!e) return;
+    openDetail(e.seed + pos, "a position people deliberately change", dl([
+      ["Seed residue", e.seed + " at " + pos],
+      ["Substituted in", Math.round(e.substituted * 1000) / 10 + "% of the family"],
+      ["Conservation", e.conservation == null ? null : String(e.conservation)],
+      ["Depth", col && col.depth != null ? commas(col.depth) + " sequences at this position" : null],
+      ["Variants seen", (e.variants || []).map(function (v) {
+        return '<span class="badge mut">' + esc(e.seed) + pos + esc(v.aa) + " " +
+          Math.round(v.f * 1000) / 10 + "%</span>";
+      }).join(" "), true],
+      ["Why it matters", "A residue this variable across the family is either tolerant of " +
+        "substitution or somewhere people mutate on purpose. The conservation track cannot " +
+        "tell those apart, and neither can this: it reports what the archive contains."],
+    ]));
+  }
+
+  function openNameDetail(idx) {
+    var n = ((S.family.provenance || {}).names || {});
+    var r = (n.rows || [])[idx];
+    if (!r) return;
+    var coll = (n.collisions || []).filter(function (c) { return c.name === r.name; })[0];
+    openDetail(r.name, "a name this protein is deposited under", dl([
+      ["Entities", commas(r.n) + " of " + commas(n.total)],
+      ["Share", (r.share * 100).toFixed(1) + "%"],
+      ["Case variants", r.variants > 1 ? r.variants + " spellings differing only in case" : null],
+      ["Recognised as", r.kind ? (NAME_KIND[r.kind] || r.kind) : "not a name UniProt lists for this protein"],
+      ["Also used by", coll
+        ? coll.accessions.map(function (a) {
+            return uniprotLink(a.accession) + " (" + commas(a.n) + ")";
+          }).join(", ")
+        : null, true],
+      ["Seed accession", n.accession ? uniprotLink(n.accession) : null, true],
+    ]));
+  }
+
+  function openCollisionDetail(idx) {
+    var n = ((S.family.provenance || {}).names || {});
+    var c = (n.collisions || [])[idx];
+    if (!c) return;
+    openDetail(c.name, c.accessions.length + " different proteins share this name", dl([
+      ["Entities using it", commas(c.total)],
+      ["Proteins", c.accessions.map(function (a) {
+        return uniprotLink(a.accession) + " · " + commas(a.n) +
+          (n.accession && a.accession === n.accession ? " <b>(this family's seed)</b>" : "");
+      }).join("<br>"), true],
+      ["Why it matters", "Searching the archive for this string returns all of them, and " +
+        "the string alone cannot tell you which protein an entry holds."],
+    ]));
+  }
+
+  function openGroupDetail(idx) {
+    var p = ((S.family.provenance || {}).people || {});
+    var r = (p.rows || [])[idx];
+    if (!r) return;
+    openDetail(r.pi, "depositing group, by last author", dl([
+      ["Entries deposited", commas(r.entries) + " of " + commas(p.n_entries) +
+        " in this family (" + (100 * r.entries / p.n_entries).toFixed(1) + "%)"],
+      ["Papers", commas(r.papers)],
+      ["Active", r.first ? (r.first === r.last ? String(r.first) : r.first + "–" + r.last) : null],
+      ["Best resolution", r.best_resolution ? r.best_resolution.toFixed(2) + " Å" : null],
+      ["Most frequent first author", r.top_first_author],
+      ["Commonest method", r.method],
+      ["How this is derived", "The last author of each entry's primary citation, which is " +
+        "a convention of the field rather than something the archive records. Counted per " +
+        "entry, not per paper: one paper routinely covers a series of depositions."],
+    ]));
+  }
+
+  function openAssemblyDetail(idx) {
+    var a = S.family.assemblies || {};
+    var st = (a.states || [])[idx];
+    if (!st) return;
+    openDetail(st.details || (st.count + "-mer"), "oligomeric state", dl([
+      ["Chains", String(st.count)],
+      ["Entries", commas(st.entries) + " of " + commas(a.n)],
+      ["Share", st.fraction.toFixed(1) + "%"],
+      ["Where this comes from", "The biological assemblies the archive records for each " +
+        "entry. States are grouped on the CHAIN COUNT and never on the free-text label, " +
+        "which is not consistently capitalised: 'trimeric' and 'Trimeric' were being listed " +
+        "as two different states in the same table."],
+      ["Provenance", a.provenance
+        ? Object.keys(a.provenance).map(function (k) {
+            return esc(k) + ": " + commas(a.provenance[k]);
+          }).join("<br>")
+        : null, true],
+    ]));
+  }
+
   /* Every detail drawer opens the same way, from one delegated listener: these tables are
      rebuilt on every filter change, so per-row handlers would have to be re-attached each
      time and one missed rebuild would leave a dead table. */
@@ -3192,6 +3329,12 @@
       if (row.dataset.org) return openOrthologueDetail(row.dataset.org);
       if (row.dataset.pos) return openHotResidueDetail(Number(row.dataset.pos));
       if (row.dataset.seq) return openConstructDetail(row.dataset.seq);
+      if (row.dataset.motif) return openMotifDetail(Number(row.dataset.motif));
+      if (row.dataset.engpos) return openEngineeredDetail(Number(row.dataset.engpos));
+      if (row.dataset.provname) return openNameDetail(Number(row.dataset.provname));
+      if (row.dataset.provcoll) return openCollisionDetail(Number(row.dataset.provcoll));
+      if (row.dataset.provgroup) return openGroupDetail(Number(row.dataset.provgroup));
+      if (row.dataset.asmstate) return openAssemblyDetail(Number(row.dataset.asmstate));
     });
     ["dgAll", "dgTarget", "dgApproved"].forEach(function (id) {
       var b = $(id);
