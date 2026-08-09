@@ -25,7 +25,11 @@ cd "$REPO_ROOT"
 
 LOG=/tmp/codswallop-overnight.log
 RUN=/tmp/codswallop-overnight-pass.log
-STALL_MIN=${STALL_MIN:-25}          # silence beyond this means wedged, not slow
+# Silence beyond this means wedged, not slow. The work now emits a heartbeat every 30
+# seconds even mid-embedding, so anything approaching this really has stopped. It was 25,
+# which was shorter than a single large family's legitimately silent embed: the supervisor
+# killed spike every 25 minutes and would have done so all night.
+STALL_MIN=${STALL_MIN:-12}
 MAX_PASSES=${MAX_PASSES:-40}
 
 say() { printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$*" | tee -a "$LOG"; }

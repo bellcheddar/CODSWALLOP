@@ -308,7 +308,23 @@ def _rebuild_embeddings(artefacts, args) -> bool:
                 print(f"  skip  {s['slug']}: {r.get('message') or 'ambiguous'}", flush=True)
                 continue
             fam = family.get_or_build(r["seed"], s["query"])
-            art = embed.build(fam, max_representatives=args.max_reps)
+            # A heartbeat, on its own line every half minute. Without it a single large
+            # family is completely silent for as long as it takes: spike's embedding runs
+            # for 32 minutes, and an unattended supervisor watching for silence cannot tell
+            # that from a wedged socket. It killed and restarted the pass every 25 minutes
+            # and would have spent the night doing so.
+            beat = [time.time()]
+
+            def heartbeat(stage, i, n, label):
+                if time.time() - beat[0] < 30:
+                    return
+                beat[0] = time.time()
+                if stage == "fetch":
+                    print(f"        {s['slug']}: fetching {i}/{n} {label}", flush=True)
+                else:
+                    print(f"        {s['slug']}: aligning {n:,} pairs", flush=True)
+
+            art = embed.build(fam, max_representatives=args.max_reps, progress=heartbeat)
             if not art:
                 print(f"  skip  {s['slug']}: not enough usable structures", flush=True)
                 continue
