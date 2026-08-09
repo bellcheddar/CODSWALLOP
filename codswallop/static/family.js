@@ -2423,12 +2423,18 @@
 
     (d.helices || []).forEach(function (h) {
       if (!h.path || h.path.length < 4) return;
-      // A capsule along the helix axis, as wide as the minor axis the PDBe reports. Its
-      // own geometry, not a guess at one.
-      parts.push('<line class="fdhelix" x1="' + h.path[0] + '" y1="' + h.path[1] +
-                 '" x2="' + h.path[2] + '" y2="' + h.path[3] +
+      // Upright, for the same reason the strands are: a capsule at the projection's own
+      // angle reads as a direction the helix does not have in three dimensions. Centre and
+      // length are the PDBe's; only the angle is ours. Width stays the minor axis they
+      // report rather than a guess at one.
+      var hx = (h.path[0] + h.path[2]) / 2, hy = (h.path[1] + h.path[3]) / 2;
+      var hl = Math.sqrt((h.path[2] - h.path[0]) * (h.path[2] - h.path[0]) +
+                         (h.path[3] - h.path[1]) * (h.path[3] - h.path[1])) / 2;
+      parts.push('<line class="fdhelix" x1="' + hx.toFixed(1) + '" y1="' + (hy - hl).toFixed(1) +
+                 '" x2="' + hx.toFixed(1) + '" y2="' + (hy + hl).toFixed(1) +
                  '" stroke-width="' + (h.minor || 10) + '" stroke-linecap="round">' +
-                 "<title>Helix " + h.start + "\\u2013" + h.stop + "</title></line>");
+                 "<title>Helix " + h.start + "–" + h.stop +
+                 " (drawn upright; the PDBe lays it out at an angle)</title></line>");
     });
 
     /* Strands drawn as upright arrows rather than at the angle the PDBe lays them out at.
