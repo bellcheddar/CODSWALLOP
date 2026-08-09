@@ -62,12 +62,12 @@
       <h2>Recent searches</h2>
       <ul id="recentList">
         {% for r in recent %}
-        <li{% if loop.index > 20 %} class="extra" hidden{% endif %}><a
+        <li{% if loop.index > 10 %} class="extra" hidden{% endif %}><a
           href="{{ url_for('family_page', slug=r.slug) }}">{{ r.name or r.slug }}
           <b>{{ r.n_entries }}</b></a></li>
         {% endfor %}
       </ul>
-      {% if recent|length > 20 %}
+      {% if recent|length > 10 %}
       <button type="button" class="morebtn" id="showMore">
         Show all {{ recent|length }}
       </button>

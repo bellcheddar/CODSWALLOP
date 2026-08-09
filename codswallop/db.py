@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS family (
     total_hits         INTEGER,            -- hits the search reported, before the cap
     truncated          INTEGER NOT NULL DEFAULT 0,
     parse_version      INTEGER,            -- rcsb.PARSE_VERSION this row was built with
+    first_seen         INTEGER,            -- when it was FIRST filed; never updated
     built_at           INTEGER NOT NULL
 );
 
@@ -160,6 +161,7 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("entry", "crystal", "TEXT"),
     ("entry", "assembly", "TEXT"),
     ("family", "parse_version", "INTEGER"),
+    ("family", "first_seen", "INTEGER"),
     ("entry", "validation", "TEXT"),
     ("entry", "has_sf", "INTEGER"),
 ]
@@ -276,20 +278,26 @@ def save_family(fam: dict, entries: list[dict], entities: list[dict]) -> None:
         conn.execute(
             "INSERT INTO family(slug, query, kind, seed, name, organism, seed_sequence, "
             "  seed_length, pfam, interpro, identity_threshold, total_hits, truncated, "
-            "  parse_version, built_at) "
+            "  parse_version, first_seen, built_at) "
             "VALUES (:slug, :query, :kind, :seed, :name, :organism, :seed_sequence, "
             "  :seed_length, :pfam, :interpro, :identity_threshold, :total_hits, :truncated, "
-            "  :parse_version, :built_at) "
+            "  :parse_version, :first_seen, :built_at) "
             "ON CONFLICT(slug) DO UPDATE SET "
             "  query=excluded.query, kind=excluded.kind, seed=excluded.seed, name=excluded.name, "
             "  organism=excluded.organism, seed_sequence=excluded.seed_sequence, "
             "  seed_length=excluded.seed_length, pfam=excluded.pfam, interpro=excluded.interpro, "
             "  identity_threshold=excluded.identity_threshold, total_hits=excluded.total_hits, "
             "  truncated=excluded.truncated, parse_version=excluded.parse_version, "
-            "  built_at=excluded.built_at",
+            "  built_at=excluded.built_at, "
+            # first_seen is deliberately NOT taken from excluded: it records when this
+            # family was first filed and a rebuild must not move it. Overnight the whole
+            # archive was re-warmed, and ordering by built_at turned "recent searches" into
+            # "whatever the rebuild finished last".
+            "  first_seen=COALESCE(family.first_seen, excluded.first_seen)",
             {
                 "slug": slug,
                 "parse_version": _rcsb_parse_version(),
+                "first_seen": int(time.time()),
                 "query": fam["query"],
                 "kind": fam["kind"],
                 "seed": fam.get("seed"),
@@ -417,16 +425,21 @@ def family_row(slug: str) -> Optional[dict]:
 
 
 def recent_families(limit: int = 60) -> list[dict]:
-    """Most recently assembled families, for the landing page's drawer of previous work.
+    """Most recently *added* families, newest first, for the landing page.
 
-    Sixty rather than twelve. The list is the only route into anything already filed, and a
-    cap of twelve hid two thirds of the archive behind a search box for a name the reader
-    would have to already know.
+    Ordered by when each was first filed, not when it was last rebuilt. Those are the same
+    thing only until something re-warms the archive: the nightly warm touches every family,
+    and ordering by `built_at` turned "recent searches" into "whatever the rebuild happened
+    to finish last". `first_seen` is written once and preserved across every later build.
+
+    Rows filed before the column existed fall back to their build time, which is the best
+    available answer for them and settles as they are re-filed.
     """
     rows = connect().execute(
         "SELECT f.slug, f.name, f.organism, f.kind, f.built_at, "
+        "       COALESCE(f.first_seen, f.built_at) AS added_at, "
         "       (SELECT COUNT(*) FROM entry e WHERE e.slug = f.slug) AS n_entries "
-        "FROM family f ORDER BY f.built_at DESC LIMIT ?",
+        "FROM family f ORDER BY added_at DESC LIMIT ?",
         (limit,),
     ).fetchall()
     return [dict(r) for r in rows]

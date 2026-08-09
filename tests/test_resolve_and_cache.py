@@ -170,3 +170,33 @@ def test_a_request_whose_artefact_arrived_is_no_longer_open(tmp_path, monkeypatc
     row = db.connect().execute(
         "SELECT served_at FROM artefact_request WHERE slug='abl1'").fetchone()
     assert row["served_at"] is not None
+
+
+def test_a_rebuild_does_not_make_an_old_family_look_new(tmp_path, monkeypatch):
+    """"Recent searches" means recently added, not recently rebuilt. The nightly warm touches
+    every family, so ordering by built_at turned the list into "whatever the rebuild happened
+    to finish last"."""
+    import time as _time
+    from codswallop import config, db
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "fs.db")
+    monkeypatch.setattr(db._local, "conn", None, raising=False)
+    db.init()
+
+    def fam(slug):
+        return {"slug": slug, "query": slug, "kind": "uniprot", "seed": slug, "name": slug,
+                "organism": "o", "seed_sequence": "AAA", "seed_length": 3, "pfam": [],
+                "interpro": [], "identity_threshold": 30, "total_hits": 1, "truncated": False}
+
+    db.save_family(fam("old"), [], [])
+    first = db.connect().execute(
+        "SELECT first_seen FROM family WHERE slug='old'").fetchone()["first_seen"]
+    _time.sleep(1.1)
+    db.save_family(fam("new"), [], [])
+    _time.sleep(1.1)
+    db.save_family(fam("old"), [], [])          # the nightly rebuild
+
+    again = db.connect().execute(
+        "SELECT first_seen, built_at FROM family WHERE slug='old'").fetchone()
+    assert again["first_seen"] == first, "a rebuild must not move first_seen"
+    assert again["built_at"] > first, "but it does move built_at"
+    assert [r["slug"] for r in db.recent_families(limit=5)] == ["new", "old"]
