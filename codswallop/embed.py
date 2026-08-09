@@ -70,16 +70,62 @@ def _cif_path(pdb_id: str) -> Path:
     return STRUCT_DIR / f"{pdb_id.upper()}.cif"
 
 
+# One chain from the RCSB's Model Server instead of the whole deposited file.
+#
+# This is what makes the embedding runnable anywhere but a workstation. A large assembly is
+# hundreds of megabytes of text and biotite holds all of it in memory to parse it: 8GLV is a
+# 453 MB file that peaks at 6.3 GB RSS, and yields 426 alpha carbons. gemmi is twelve times
+# faster on the same file and still needs about six gigabytes, because the file really is
+# that big; the parser was never the problem. Asking for the one chain we want returns 533 kB
+# instead, an 850-fold reduction, and takes peak memory into the tens of megabytes.
+#
+# The trade is latency: the Model Server assembles the response, so a request takes ten to
+# twenty seconds against under one for the static file. That is the right trade for a machine
+# with 2 GB of RAM and no swap, where the alternative is not "slower" but "killed".
+MODEL_SERVER = "https://models.rcsb.org/v1/{pdb}/atoms"
+# Only fetch the whole file when it is small enough to be safe to parse. Measured against the
+# structures already cached here: the median is about 1 MB and the tail runs to 453 MB.
+MAX_WHOLE_FILE_MB = 12
+
+
+def _chain_cif(pdb_id: str, chain: str) -> Optional[Path]:
+    """One chain, cached, from the Model Server. None if it cannot be had."""
+    path = STRUCT_DIR / f"{pdb_id.upper()}_{chain}.cif"
+    if path.exists():
+        return path
+    url = MODEL_SERVER.format(pdb=pdb_id.lower())
+    params = {"auth_asym_id": chain, "encoding": "cif", "copy_all_categories": "false"}
+    if http.download(url, path, params=params) is None:
+        return None
+    # A Model Server miss is a 200 with a near-empty body rather than a 404, so size is the
+    # only signal that the chain was not there.
+    if path.stat().st_size < 2048:
+        path.unlink(missing_ok=True)
+        return None
+    return path
+
+
 def ca_trace(pdb_id: str, chain: Optional[str] = None) -> Optional[tuple]:
     """Alpha-carbon coordinates and the one-letter sequence for one chain.
 
     Returns (coords, sequence) or None. Chains are truncated at MAX_RESIDUES because
     TM-align is quadratic per pair as well as across the family.
     """
-    path = _cif_path(pdb_id)
-    if not path.exists():
-        url = f"https://files.rcsb.org/download/{pdb_id.upper()}.cif"
-        if http.download(url, path) is None:
+    path = None
+    if chain:
+        path = _chain_cif(pdb_id, chain)
+    if path is None:
+        path = _cif_path(pdb_id)
+        if not path.exists():
+            url = f"https://files.rcsb.org/download/{pdb_id.upper()}.cif"
+            if http.download(url, path) is None:
+                return None
+        # Refusing to parse it is better than being killed by the OOM reaper half way
+        # through a family, which on a box with no swap takes the other apps with it.
+        size_mb = path.stat().st_size / 1e6
+        if size_mb > MAX_WHOLE_FILE_MB:
+            logger.warning("skipping %s: %.0f MB whole-file parse, no chain available",
+                           pdb_id, size_mb)
             return None
     try:
         struct = get_structure(CIFFile.read(str(path)), model=1)

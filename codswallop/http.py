@@ -176,7 +176,7 @@ def parallel_map(fn: Callable, items: list, workers: Optional[int] = None) -> li
         return list(pool.map(fn, items))
 
 
-def download(url: str, dest, skip_if_exists: bool = True):
+def download(url: str, dest, skip_if_exists: bool = True, params: Optional[dict] = None):
     """Stream a URL to `dest` (a Path). Returns dest, or None on 404.
 
     Written to a unique temporary name and moved into place, so a half-written file can
@@ -191,7 +191,7 @@ def download(url: str, dest, skip_if_exists: bool = True):
     dest = Path(dest)
     if skip_if_exists and dest.exists() and dest.stat().st_size > 0:
         return dest
-    resp = get(url, stream=True)
+    resp = get(url, stream=True, params=params) if params else get(url, stream=True)
     if resp.status_code == 404:
         return None
     resp.raise_for_status()

@@ -606,3 +606,43 @@ def test_too_few_points_have_no_third_axis():
     from codswallop.layout import third_axis
     assert third_axis([[1.0, 0.5], [0.5, 1.0]]) is None
     assert third_axis([]) is None
+
+
+def test_a_huge_assembly_is_not_parsed_whole_when_a_chain_will_do(monkeypatch, tmp_path):
+    """8GLV is a 453 MB deposited file that yields 426 alpha carbons, and biotite holds all
+    of it in memory to get them: 6.3 GB peak RSS, on a droplet with 2.2 GB and no swap.
+
+    Asking the Model Server for the one chain returns 533 kB and peaks at 102 MB. So the
+    chain route must be tried FIRST whenever a chain is known, not as a fallback.
+    """
+    from codswallop import embed
+
+    calls = []
+
+    def fake_download(url, dest, skip_if_exists=True, params=None):
+        calls.append(url)
+        from pathlib import Path
+        Path(dest).parent.mkdir(parents=True, exist_ok=True)
+        Path(dest).write_bytes(b"x" * 4096)
+        return dest
+
+    monkeypatch.setattr(embed.http, "download", fake_download)
+    monkeypatch.setattr(embed, "STRUCT_DIR", tmp_path)
+    monkeypatch.setattr(embed, "get_structure", lambda *a, **k: (_ for _ in ()).throw(ValueError()))
+    monkeypatch.setattr(embed, "CIFFile", type("F", (), {"read": staticmethod(lambda p: None)}))
+
+    embed.ca_trace("8GLV", "0A")
+    assert calls and "models.rcsb.org" in calls[0], \
+        "the whole deposited file was fetched even though the chain was known"
+
+
+def test_a_whole_file_too_big_to_parse_safely_is_refused(monkeypatch, tmp_path):
+    """Better to lose one structure from the family than to be killed by the OOM reaper
+    half way through it, which on a box with no swap takes the other apps down too."""
+    from codswallop import embed
+
+    big = tmp_path / "8GLV.cif"
+    big.write_bytes(b"x" * int((embed.MAX_WHOLE_FILE_MB + 1) * 1e6))
+    monkeypatch.setattr(embed, "STRUCT_DIR", tmp_path)
+    monkeypatch.setattr(embed, "_chain_cif", lambda *a: None)
+    assert embed.ca_trace("8GLV", "0A") is None
