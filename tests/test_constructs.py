@@ -90,3 +90,22 @@ def test_excision_never_leaves_the_aligner_an_empty_sequence():
     # a partner must degrade to a messy diff rather than raising.
     d = constructs.diff("MKV" * 20, GFP)
     assert d["ok"] is True
+
+
+def test_a_residue_the_matrix_does_not_know_does_not_kill_the_family():
+    """Biopython does not skip an unknown letter, it refuses the whole alignment. Three
+    insulin entities carrying one selenocysteine each took the entire family build down and
+    the family never appeared at all."""
+    out = constructs._alignable("MKUVO@")
+    assert set(out) <= set(constructs._ALIGNER.substitution_matrix.alphabet)
+    # U is selenomethionine to this module, and aligns as the methionine it chemically is
+    # rather than being thrown away as unknown.
+    assert out[2] == "M"
+    assert constructs.diff("MKMVWY", "MKUVWY")["ok"] is True
+
+
+def test_the_semet_flag_still_reads_the_sequence_as_deposited():
+    """The substitution is for the aligner only: mapping U to M everywhere would erase the
+    very thing the flag exists to report."""
+    d = constructs.diff("MKMVWYACDEFGHIKLMN", "MKUVWYACDEFGHIKLMN")
+    assert d["semet"] is True

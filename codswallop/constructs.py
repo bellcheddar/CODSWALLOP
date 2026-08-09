@@ -242,6 +242,31 @@ def _locate_fusions(construct: str, canonical: str = "") -> list[dict]:
     return hits
 
 
+# Residues BLOSUM62 has never heard of, mapped to the closest thing it has. Biopython does
+# not skip them, it refuses the whole alignment: three insulin entities carrying a single
+# selenocysteine took the entire family build down with "sequence contains letters not in
+# the alphabet", and the family simply never appeared.
+#
+# U is the one that matters here and it is deliberately mapped to M rather than to X. This
+# module reads U as selenomethionine (see `semet` below), and selenomethionine aligns as the
+# methionine it chemically is; calling it unknown would lose a real residue to make the
+# aligner happy. The mapping is applied for alignment only, so the SeMet flag still reads
+# the sequence as deposited.
+_ALIGN_SUBSTITUTES = {"U": "M", "O": "K"}
+
+
+def _alignable(seq: str) -> str:
+    """A sequence the substitution matrix will accept, without discarding a residue."""
+    alphabet = set(_ALIGNER.substitution_matrix.alphabet)
+    out = []
+    for ch in seq or "":
+        if ch in alphabet:
+            out.append(ch)
+        else:
+            out.append(_ALIGN_SUBSTITUTES.get(ch.upper(), "X"))
+    return "".join(out)
+
+
 def diff(canonical: str, construct: str, features: Optional[dict] = None) -> dict:
     """Compare one deposited SEQRES against the canonical sequence.
 
@@ -273,7 +298,7 @@ def diff(canonical: str, construct: str, features: Optional[dict] = None) -> dic
         if len(candidate) >= max(20, 0.25 * len(canonical)):
             stripped, fusion_sites = candidate, offsets
 
-    aln = _ALIGNER.align(canonical, stripped)[0]
+    aln = _ALIGNER.align(_alignable(canonical), _alignable(stripped))[0]
     blocks = list(zip(aln.aligned[0], aln.aligned[1]))
     if not blocks:
         return {"ok": False}
