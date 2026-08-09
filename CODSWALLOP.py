@@ -325,7 +325,9 @@ def _rebuild_embeddings(artefacts, args) -> bool:
                 if stage == "fetch":
                     print(f"        {s['slug']}: fetching {i}/{n} {label}", flush=True)
                 else:
-                    print(f"        {s['slug']}: aligning {n:,} pairs", flush=True)
+                    pct = (100 * i / n) if n else 0
+                    print(f"        {s['slug']}: aligning {i:,}/{n:,} pairs ({pct:.0f}%)",
+                          flush=True)
 
             art = embed.build(fam, max_representatives=args.max_reps, progress=heartbeat)
             if not art:
