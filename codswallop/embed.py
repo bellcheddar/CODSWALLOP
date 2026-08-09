@@ -139,7 +139,7 @@ def transforms_to_reference(traces: list[tuple], ref: int = 0) -> list[Optional[
     return out
 
 
-def pairwise_tm(traces: list[tuple]) -> np.ndarray:
+def pairwise_tm(traces: list[tuple], progress=None) -> np.ndarray:
     """Symmetric TM-score matrix.
 
     TM-align is directional: normalising by chain 1 or chain 2 gives different numbers when
@@ -150,6 +150,12 @@ def pairwise_tm(traces: list[tuple]) -> np.ndarray:
     """
     n = len(traces)
     tm = np.eye(n)
+    total = n * (n - 1) // 2
+    done = 0
+    # Reported from inside the loop, not once before it. This is the longest silent stretch
+    # in the whole pipeline: spike is 32 minutes of it, and an unattended supervisor watching
+    # for silence cannot tell that from a wedged socket. Announcing the alignment before
+    # starting it says nothing about whether it is still going.
     for i in range(n):
         ci, si = traces[i]
         for j in range(i + 1, n):
@@ -160,6 +166,9 @@ def pairwise_tm(traces: list[tuple]) -> np.ndarray:
             except Exception:
                 score = 0.0
             tm[i, j] = tm[j, i] = score
+            done += 1
+            if progress and done % 200 == 0:
+                progress("align", done, total, "")
     return tm
 
 
@@ -385,7 +394,7 @@ def build(fam: dict, max_representatives: int = MAX_REPRESENTATIVES,
     if progress:
         progress("align", 0, len(reps) * (len(reps) - 1) // 2, "")
     t0 = time.time()
-    tm = pairwise_tm(traces)
+    tm = pairwise_tm(traces, progress=progress)
     coords = embed(tm)
     # The reference for superposition: the representative most similar to everything else,
     # not simply the best-resolution one. Superposing a family onto an outlier makes every

@@ -313,7 +313,10 @@ def _rebuild_embeddings(artefacts, args) -> bool:
             # for 32 minutes, and an unattended supervisor watching for silence cannot tell
             # that from a wedged socket. It killed and restarted the pass every 25 minutes
             # and would have spent the night doing so.
-            beat = [time.time()]
+            # Seeded in the past, so the first notification is not swallowed by the very
+            # guard meant to throttle the later ones: that left the align stage silent from
+            # start to finish, which is exactly the stretch this exists to cover.
+            beat = [0.0]
 
             def heartbeat(stage, i, n, label):
                 if time.time() - beat[0] < 30:
