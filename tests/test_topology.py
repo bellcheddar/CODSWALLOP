@@ -68,3 +68,15 @@ def test_mapping_is_by_alignment_not_by_offset():
     mapping = topology.map_to_seed(recs, seed)
     assert mapping[101] == 5, "the first observed residue is the seed's fifth"
     assert mapping[110] == 14
+
+
+def test_the_topology_aligner_survives_an_unknown_residue_too():
+    """The same BLOSUM62 gap, in the second of the two aligners. Fixing it in constructs.py
+    alone left serum albumin failing here instead: one selenocysteine, and the family lost
+    its whole topology artefact while its embedding and contacts built perfectly."""
+    seed = "MKWVTFISLLFLFSSAYSRGVFRR"
+    recs = [{"res": i, "aa": c, "sse": "-", "idx": i, "bp1": 0, "bp2": 0}
+            for i, c in enumerate(seed.replace("F", "U", 1), start=1)]
+    mapping = topology.map_to_seed(recs, seed)
+    assert mapping, "an unknown residue must not empty the mapping"
+    assert len(mapping) >= len(seed) - 2

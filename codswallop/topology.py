@@ -183,7 +183,13 @@ def map_to_seed(records: list[dict], seed_sequence: str) -> dict:
         return {}
     # Lowercase in DSSP marks a cysteine in a disulphide bond; the aligner wants the residue.
     obs = obs.upper()
-    aln = _ALIGNER.align(seed_sequence, obs)[0]
+    # Through the construct engine's own sanitiser, not a second copy of it. BLOSUM62 has no
+    # U and Biopython refuses the whole alignment rather than skipping the letter, so one
+    # selenocysteine in serum albumin cost that family its entire topology artefact. Fixing
+    # it in constructs.py alone left this aligner, which has the same matrix and the same
+    # problem, still failing.
+    from .constructs import _alignable
+    aln = _ALIGNER.align(_alignable(seed_sequence), _alignable(obs))[0]
     mapping = {}
     for (s_start, s_end), (o_start, o_end) in zip(aln.aligned[0], aln.aligned[1]):
         for k in range(s_end - s_start):
