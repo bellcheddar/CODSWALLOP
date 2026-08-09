@@ -92,8 +92,97 @@ def _venv_path_env() -> dict:
     return env
 
 
-def contacts_for(pdb_id: str, workdir: Path) -> Optional[list[dict]]:
-    """Convert one entry and run PLIP over it, returning a flat list of contacts."""
+def _observed_chains(st) -> dict:
+    """Chain -> [(author residue number, one-letter code)], in order.
+
+    Read off the SAME gemmi structure PLIP is about to be given, after `remap_structure` has
+    renamed the chains, so the chain letters here are the ones PLIP will report. Taking them
+    from the original CIF instead would look right and mis-key every entry whose chains got
+    renamed.
+
+    `one_letter_code` is lower case for a modified residue (MSE -> 'm'), which is exactly the
+    information the aligner wants folded away, so it is upper-cased.
+    """
+    import gemmi
+    out: dict = {}
+    for ch in st[0]:
+        seq = []
+        for res in ch:
+            info = gemmi.find_tabulated_residue(res.name)
+            if info is None or not info.is_amino_acid():
+                continue
+            code = (info.one_letter_code or "X").upper()
+            seq.append((res.seqid.num, code if code.isalpha() else "X"))
+        if seq:
+            out[ch.name] = seq
+    return out
+
+
+# A backstop only. Which chains belong to the family member is READ from the entity record
+# rather than inferred, because inferring it does not work: an unrelated 78-residue partner
+# aligned to carbonic anhydrase at 37.8 % identity over 74 columns, which is inside the
+# twilight zone and above any threshold that still admits a legitimate 35 %-identity
+# orthologue. Identity cannot separate those two cases, so it is not asked to.
+MIN_CHAIN_IDENTITY = 0.2
+
+
+def _chain_mappings(observed: dict, seed_sequence: str,
+                    only: Optional[set] = None) -> dict:
+    """(chain, author residue number) -> seed position, for the member's own chains.
+
+    Aligned, not offset, for the reason `topology.map_to_seed` gives: a deposited entry may
+    be numbered on the mature protein, on the construct from 1, or on the canonical, and an
+    assumed offset is right often enough to look like it works.
+
+    `only` is the set of chains the family member actually occupies, taken from the entity
+    record and translated through cif2plip's renaming. Everything else in the file is a
+    partner, a tag or another copy of something, and its contacts are not this protein's.
+    """
+    if not seed_sequence:
+        return {}
+    from Bio.Align import PairwiseAligner, substitution_matrices
+    from .constructs import _alignable
+
+    aligner = PairwiseAligner()
+    aligner.substitution_matrix = substitution_matrices.load("BLOSUM62")
+    aligner.open_gap_score, aligner.extend_gap_score = -11, -1
+    aligner.mode = "global"
+
+    seed = _alignable(seed_sequence)
+    out: dict = {}
+    for chain, residues in (observed or {}).items():
+        if only is not None and chain not in only:
+            continue
+        if not residues:
+            continue
+        obs = _alignable("".join(code for _, code in residues))
+        try:
+            aln = aligner.align(seed, obs)[0]
+        except Exception:                       # noqa: BLE001 - an unalignable chain
+            continue
+        pairs, matches = 0, 0
+        chain_map = {}
+        for (s0, s1), (o0, o1) in zip(aln.aligned[0], aln.aligned[1]):
+            for k in range(s1 - s0):
+                pairs += 1
+                if seed[s0 + k] == obs[o0 + k]:
+                    matches += 1
+                chain_map[(chain, residues[o0 + k][0])] = int(s0 + k) + 1
+        if not pairs:
+            continue
+        if matches / pairs < MIN_CHAIN_IDENTITY:
+            continue
+        out.update(chain_map)
+    return out
+
+
+def contacts_for(pdb_id: str, workdir: Path) -> Optional[tuple]:
+    """Convert one entry and run PLIP over it.
+
+    Returns `(rows, observed_chains, chain_map)`: the flat contact list, what each chain
+    actually contains, and the original-to-PLIP chain renaming. The last two are what put the
+    contacts into seed coordinates without an assumed offset.
+    """
     c2p = _load_cif2plip()
     cif = STRUCT_DIR / f"{pdb_id.upper()}.cif"
     if not cif.exists():
@@ -107,7 +196,8 @@ def contacts_for(pdb_id: str, workdir: Path) -> Optional[list[dict]]:
 
     try:
         # (structure, chain_map, resname_map, ligand_resnames)
-        st, _chain_map, _resname_map, ligands = c2p.remap_structure(str(cif))
+        st, chain_map, _resname_map, ligands = c2p.remap_structure(str(cif))
+        observed = _observed_chains(st)
         c2p.write_pdb(st, str(pdb_path))
         subprocess.run(["pdb_tidy", str(pdb_path)], check=True, env=_venv_path_env(),
                        stdout=open(str(pdb_path) + ".tidy", "w"),
@@ -132,7 +222,9 @@ def contacts_for(pdb_id: str, workdir: Path) -> Optional[list[dict]]:
 
     # PLIP names the report after the input file (`1DKK_report.xml`), not `report.xml`.
     reports = sorted(out.glob("*report.xml"))
-    return _parse_report(reports[0], pdb_id) if reports else None
+    if not reports:
+        return None
+    return _parse_report(reports[0], pdb_id), observed, chain_map
 
 
 def _parse_report(xml_path: Path, pdb_id: str) -> list[dict]:
@@ -201,7 +293,6 @@ def build(fam: dict, max_entries: int = 60, progress=None) -> Optional[dict]:
     if not chosen:
         return None
 
-    offsets = {m["pdb_id"]: (m.get("query_beg") or 1) - 1 for m in chosen}
     all_rows: list[dict] = []
     ok = failed = 0
     t0 = time.time()
@@ -210,18 +301,37 @@ def build(fam: dict, max_entries: int = 60, progress=None) -> Optional[dict]:
         for i, m in enumerate(chosen):
             if progress:
                 progress(i + 1, len(chosen), m["pdb_id"])
-            rows = contacts_for(m["pdb_id"], Path(tmp))
-            if rows is None:
+            got = contacts_for(m["pdb_id"], Path(tmp))
+            if got is None:
                 failed += 1
                 continue
+            rows, observed, chain_map = got
             ok += 1
-            off = offsets.get(m["pdb_id"], 0)
+            # PLIP reports author residue numbering; the rest of the app speaks seed
+            # coordinates. Mapped by ALIGNING each chain to the seed, per entry.
+            #
+            # This used to be `seed_pos = resnr + (query_beg - 1)`, and that is wrong twice
+            # over. `query_beg` is where the entity's aligned region starts in the seed, so
+            # it converts an entity sequence index; `resnr` is not an entity index, it is the
+            # author number, which in a well-annotated entry already follows the canonical
+            # numbering. The offset was therefore counted twice: on JAK1 (query_beg 879,
+            # seed 1,154 residues) the hot residues came out at 1,340 and 2,110. It was
+            # invisible on the family it was validated against, carbonic anhydrase, because
+            # its query_beg is 1 and the offset is zero, so His94/His96/Thr199/Thr200 were
+            # right for a reason that had nothing to do with the mapping being correct.
+            # 52 of 71 built families were affected.
+            # The member's own author chains, renamed the way cif2plip renamed them.
+            member_chains = {chain_map.get(c, c) for c in (m.get("chains") or [])}
+            mapping = _chain_mappings(observed, fam.get("seed_sequence") or "",
+                                      only=member_chains or None)
             for r in rows:
-                # PLIP reports author residue numbering; the rest of the app speaks seed
-                # coordinates. Mapped through the same alignment offset the density census
-                # uses, so a hot residue here is the same residue as in the conservation
-                # track and the domain ribbon.
-                r["seed_pos"] = r["resnr"] + off
+                pos = mapping.get((r.get("reschain"), r["resnr"]))
+                if pos is None:
+                    # A chain that is not this protein, or a residue outside the aligned
+                    # region. Dropped rather than guessed: a contact placed on the wrong
+                    # residue is worse than a contact nobody counted.
+                    continue
+                r["seed_pos"] = pos
                 all_rows.append(r)
 
     if not all_rows:
@@ -231,12 +341,20 @@ def build(fam: dict, max_entries: int = 60, progress=None) -> Optional[dict]:
     per_residue: Counter = Counter()
     per_type: Counter = Counter()
     lig_res: dict = defaultdict(Counter)
-    restype_of: dict[int, str] = {}
+    # The residue named for a seed position is the SEED's residue there. Anything else is
+    # inconsistent by construction: the position is a coordinate on the seed, so the letter
+    # at it is not a matter of opinion. This was `setdefault`, which named the position after
+    # whichever entry was processed first, and a single engineered variant could therefore
+    # label it; a majority vote across the entries was tried and is worse, because a family
+    # holds orthologues and mutants and the majority of them frequently do not carry the
+    # seed's residue at all. What varies between structures is exactly what the conservation
+    # track beside this panel already reports.
+    restype_votes: dict = defaultdict(Counter)
     for r in all_rows:
         per_residue[r["seed_pos"]] += 1
         per_type[r["type"]] += 1
         lig_res[r["ligand"]][r["seed_pos"]] += 1
-        restype_of.setdefault(r["seed_pos"], r["restype"])
+        restype_votes[r["seed_pos"]][r["restype"]] += 1
 
     # Metal coordination, kept separate from the rest of the fingerprint. Whether a metal is
     # a structural ion or the catalytic centre is a property of the PROTEIN, not of the
@@ -262,6 +380,17 @@ def build(fam: dict, max_entries: int = 60, progress=None) -> Optional[dict]:
         res_ligands[r["seed_pos"]][r["ligand"]] += 1
         res_entries[r["seed_pos"]].add(r["pdb_id"])
 
+    _THREE = {"A": "ALA", "R": "ARG", "N": "ASN", "D": "ASP", "C": "CYS", "Q": "GLN",
+              "E": "GLU", "G": "GLY", "H": "HIS", "I": "ILE", "L": "LEU", "K": "LYS",
+              "M": "MET", "F": "PHE", "P": "PRO", "S": "SER", "T": "THR", "W": "TRP",
+              "Y": "TYR", "V": "VAL"}
+    seed_seq = fam.get("seed_sequence") or ""
+    restype_of = {}
+    for pos in restype_votes:
+        letter = seed_seq[pos - 1] if 1 <= pos <= len(seed_seq) else ""
+        # Falling back to what the structures reported only where the seed cannot say, which
+        # after the mapping fix should be nowhere.
+        restype_of[pos] = _THREE.get(letter) or restype_votes[pos].most_common(1)[0][0]
     hot = [{"pos": pos, "restype": restype_of.get(pos, ""), "contacts": n,
             "entries": len(res_entries[pos]),
             "types": res_types[pos].most_common(),

@@ -17,7 +17,14 @@ from . import config
 logger = logging.getLogger(__name__)
 
 # 3: hot residues carry their own contact-type and ligand breakdowns.
-VERSION = 3
+# 4: seed positions are mapped by ALIGNING each of the member's own chains to the seed,
+#    replacing `resnr + (query_beg - 1)`. That added the seed offset to PLIP's author
+#    residue number, which already carries it, so it was counted twice: JAK1's hot residues
+#    came out at 1,340 and 2,110 on a 1,154-residue seed, and 52 of 71 families were wrong.
+#    Every version-3 artefact is therefore untrustworthy and must be rebuilt, not migrated:
+#    the raw residue numbers are not kept, so the double offset cannot be undone after the
+#    fact. Contacts from chains that are not the family member are no longer counted at all.
+VERSION = 4
 CONTACT_DIR = config.DATA_DIR / "contacts"
 
 
