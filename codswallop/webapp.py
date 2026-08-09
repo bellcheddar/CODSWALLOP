@@ -41,6 +41,7 @@ SECTIONS = [
         {"id": "crystals", "label": "Crystals", "phase": 3, "live": True},
         {"id": "quality", "label": "Quality", "phase": 3, "live": True},
     {"id": "assembly", "label": "Assembly", "phase": 4, "live": True},
+    {"id": "provenance", "label": "Provenance", "phase": 4, "live": True},
     {"id": "motifs", "label": "Motifs", "phase": 4, "live": True},
     {"id": "drugs", "label": "Drugs", "phase": 4, "live": True},
     {"id": "topology", "label": "Topology", "phase": 4, "live": True},

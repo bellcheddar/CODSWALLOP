@@ -18,8 +18,8 @@ from collections import Counter
 from typing import Optional
 
 from . import (config, constructs as construct_engine, crystals as crystal_engine, db,
-               instances, layout, ligands as ligand_engine, msa as msa_engine, rcsb,
-               uniprot)
+               instances, layout, ligands as ligand_engine, msa as msa_engine, provenance,
+               rcsb, uniprot)
 
 # How many distinct UniProt references a family will fetch canonicals for. A family is
 # dominated by a handful of accessions (carbonic anhydrase II: 1,249 of 1,490 entities are
@@ -201,6 +201,11 @@ def decorate(fam: dict) -> dict:
                                    "n_ambiguous": 0, "interfaces": None})
     fam["ligands"] = _optional("ligands", lambda: ligand_engine.summarise(fam["entries"]),
                                {"components": [], "by_class": {}, "n": 0})
+    # Also here, and for the same reason as assemblies: it reads the citation and deposit
+    # date off `fam["entries"]`, which `_compact` is about to pop.
+    fam["provenance"] = _optional(
+        "provenance", lambda: provenance.build(fam, members, _seed_names(fam, members)),
+        {"names": {"n": 0, "rows": []}, "people": {"n_groups": 0, "rows": []}})
 
     # The classification supersedes the Phase 1 exclusion list that decided the amber halo.
     # "Ligand-bound" now means a component somebody put there on purpose (a ligand or a
@@ -281,6 +286,42 @@ def decorate(fam: dict) -> dict:
         "orthologues", lambda: build_orthologue_matrix(members, fam.get("seed_length") or 0), [])
     fam.pop("domains_by_entity", None)      # per-chain detail: aggregated, not shipped
     return fam
+
+
+def _seed_names(fam: dict, members: list[dict]) -> dict:
+    """The UniProt record for the family's OWN seed, for the nomenclature panel.
+
+    The accession is taken from the seed and never from a vote among the members. A family
+    is assembled at 30 % identity, so the commonest accession in it is frequently a different
+    protein: that popularity contest has already sent ABL1's AlphaFold overlay to EGFR and
+    A2A's to a cytochrome, and here it would reconcile lysozyme's names against whatever
+    relative happened to outnumber it.
+
+    A UniProt-seeded family carries the accession directly. A PDB- or entity-seeded one
+    carries an entity id, so the accession is read off that exact entity: `1AKI_1` gives
+    P00698, which is a lookup rather than a guess.
+    """
+    accession = None
+    if fam.get("kind") == "uniprot":
+        accession = fam.get("seed")
+    else:
+        target = (fam.get("seed") or "").upper()
+        for m in members:
+            if (m.get("entity_id") or "").upper() == target and m.get("uniprot"):
+                accession = m["uniprot"]
+                break
+    if not accession:
+        # No canonical record to reconcile against. The panel still lists what the archive
+        # actually says, and simply cannot mark any of it official.
+        return {"name": fam.get("name"), "alt_names": [], "short_names": [], "genes": []}
+    rec = uniprot.entry(accession) or {}
+    return {
+        "accession": accession,
+        "name": rec.get("name") or fam.get("name"),
+        "alt_names": rec.get("alt_names") or [],
+        "short_names": rec.get("short_names") or [],
+        "genes": rec.get("genes") or [],
+    }
 
 
 def _attach_density(fam: dict, members: list[dict]) -> None:

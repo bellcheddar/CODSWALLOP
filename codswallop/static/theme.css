@@ -958,6 +958,19 @@ footer.site .sources { margin-top: 7px; }
   background: var(--surface-2); border-radius: 3px; overflow: hidden;
 }
 .asmbar i { display: block; height: 100%; background: var(--brass); border-radius: 3px; }
+
+/* Depositions per year. Bars rather than a line: these are counts of discrete events, and
+   a line drawn between them implies a rate through the gap that nobody measured. Brass,
+   because a deposition is a thing somebody did rather than a measurement. */
+.yearbars {
+  display: flex; align-items: flex-end; gap: 1px; height: 56px; margin: 4px 0 2px;
+  padding: 0 1px; border-bottom: 1px solid var(--line);
+}
+.yearbars .yb {
+  flex: 1 1 0; min-width: 2px; height: var(--h, 2%);
+  background: var(--brass); opacity: .78; border-radius: 1px 1px 0 0;
+}
+.yearbars .yb:hover { opacity: 1; }
 @media (max-width: 640px) { .asmbar { width: 64px; } }
 
 /* The entries the archive is undecided about. Chips rather than a run of links, because

@@ -1729,6 +1729,138 @@
      deposited 1,686 times ever been seen as anything other than the state everyone quotes?
      Lysozyme is 90.7 % monomeric, and the 4.3 % dimeric and 3.8 % trimeric entries are
      exactly the ones worth a look. */
+  /* ---- provenance: what it is called, and who did the work --------------------------- */
+
+  var NAME_KIND = {
+    recommended: "UniProt recommended name",
+    alternative: "UniProt alternative name",
+    short: "UniProt short name",
+    gene: "gene name",
+    variant: "official name with an isoform or processing qualifier"
+  };
+
+  function renderNames() {
+    var n = (S.family.provenance || {}).names || { n: 0, rows: [] };
+    if (!n.total) {
+      $("nameSub").textContent = "no deposited descriptions to reconcile";
+      $("nameOfficial").innerHTML = "";
+      $("nameRows").innerHTML = '<p class="empty">Nothing in this family carries a ' +
+        "deposited description.</p>";
+      $("nameCollisions").innerHTML = ""; $("nameOthers").innerHTML = "";
+      return;
+    }
+    $("nameSub").textContent = commas(n.total) + " entities of " +
+      (n.accession || "the seed") + " · " + n.n +
+      (n.n === 1 ? " spelling" : " distinct spellings");
+
+    $("nameOfficial").innerHTML = !n.official.length ? "" :
+      '<p class="caveat"><b>Officially:</b> ' + n.official.map(function (o) {
+        return "<span class=\"chip\">" + esc(o.name) + " <i>" + esc(o.kind) + "</i></span>";
+      }).join(" ") + "</p>";
+
+    var pct = function (v) { return (v * 100).toFixed(1) + "%"; };
+    $("nameRows").innerHTML =
+      '<div class="tablewrap"><table class="ctable"><thead><tr>' +
+      "<th>Deposited as</th><th>Entities</th><th>Share</th><th>Recognised as</th>" +
+      "</tr></thead><tbody>" +
+      n.rows.map(function (r) {
+        return "<tr><td><b>" + esc(r.name) + "</b>" +
+          (r.variants > 1 ? ' <span class="dim">+' + (r.variants - 1) +
+            " case variant" + (r.variants > 2 ? "s" : "") + "</span>" : "") + "</td>" +
+          '<td class="n">' + commas(r.n) + "</td>" +
+          '<td class="n">' + pct(r.share) + "</td>" +
+          "<td>" + (r.kind
+            ? '<span class="ok">' + esc(NAME_KIND[r.kind] || r.kind) + "</span>"
+            : '<span class="dim">not an official name</span>') + "</td></tr>";
+      }).join("") + "</tbody></table></div>" +
+      (n.pooled ? '<p class="caveat">' + commas(n.pooled) +
+        (n.pooled === 1 ? " entity under " : " entities under ") + n.pooled_names +
+        (n.pooled_names === 1 ? " further rare spelling is" : " further rare spellings are") +
+        " not listed.</p>" : "") +
+      '<p class="caveat">' + commas(n.unrecognised) + " of " + commas(n.total) +
+      " entities (" + pct(n.unrecognised / n.total) + ") are deposited under a name " +
+      "UniProt does not list for this protein. Searching the archive for the official " +
+      "name alone misses them.</p>";
+
+    // The direction that actually breaks a search: one string, several proteins.
+    $("nameCollisions").innerHTML = !(n.collisions || []).length ? "" :
+      '<h3>The same name, different proteins</h3>' +
+      '<p class="caveat">Within this family alone. A name here identifies more than one ' +
+      "UniProt accession, so the string on its own cannot tell you which protein an entry " +
+      "holds.</p>" +
+      '<div class="tablewrap"><table class="ctable"><thead><tr>' +
+      "<th>Name</th><th>Proteins</th><th>Split</th></tr></thead><tbody>" +
+      n.collisions.map(function (c) {
+        return "<tr><td><b>" + esc(c.name) + "</b></td>" +
+          '<td class="n">' + c.accessions.length + "</td><td>" +
+          c.accessions.slice(0, 6).map(function (a) {
+            return '<span class="chip"><a href="https://www.uniprot.org/uniprotkb/' +
+              encodeURIComponent(a.accession) + '" target="_blank" rel="noopener noreferrer">' +
+              esc(a.accession) + "</a> " + commas(a.n) + "</span>";
+          }).join(" ") +
+          (c.accessions.length > 6 ? ' <span class="dim">+' + (c.accessions.length - 6) +
+            " more</span>" : "") + "</td></tr>";
+      }).join("") + "</tbody></table></div>";
+
+    $("nameOthers").innerHTML = !n.n_other ? "" :
+      '<p class="caveat"><b>' + commas(n.n_other) + " entities in this family are a " +
+      "different protein</b> and are excluded from the table above: a family is assembled " +
+      "by identity, so relatives belong in it and their own names are not this protein's " +
+      "names. " + (n.others || []).slice(0, 4).map(function (o) {
+        return esc(o.accession) + " (" + commas(o.n) + ")";
+      }).join(", ") + ".</p>";
+  }
+
+  function renderPeople() {
+    var p = (S.family.provenance || {}).people || { n_groups: 0, rows: [] };
+    if (!p.n_groups) {
+      $("peopleSub").textContent = "no primary citations for this family yet";
+      $("peopleTimeline").innerHTML = "";
+      $("peopleRows").innerHTML = '<p class="empty">Depositing groups are read from the ' +
+        "primary citation of each entry, and this family has none.</p>";
+      return;
+    }
+    $("peopleSub").textContent = commas(p.n_groups) + " groups · " +
+      commas(p.n_entries) + " entries" +
+      (p.span ? " · " + p.span[0] + "–" + p.span[1] : "");
+
+    // Deposits per year. A bar per year rather than a line: the archive is counts of
+    // discrete events, and a line implies a rate between them that nobody measured.
+    var t = p.timeline || [];
+    var peak = t.reduce(function (a, r) { return Math.max(a, r.n); }, 1);
+    $("peopleTimeline").innerHTML = !t.length ? "" :
+      '<div class="yearbars" role="img" aria-label="Depositions per year">' +
+      t.map(function (r) {
+        return '<span class="yb" style="--h:' + Math.max(2, Math.round(100 * r.n / peak)) +
+          '%" title="' + r.year + ": " + commas(r.n) + ' entries"></span>';
+      }).join("") + "</div>" +
+      '<p class="caveat">' + t[0].year + " to " + t[t.length - 1].year +
+      ", tallest bar " + commas(peak) + " entries.</p>";
+
+    $("peopleRows").innerHTML =
+      '<p class="caveat"><b>The last author stands for the group.</b> That is a convention ' +
+      "of the field rather than something recorded in the data: the archive names authors, " +
+      "not laboratories. The first author who appears most often with them is shown beside " +
+      "it, because that is frequently the person who did the work.</p>" +
+      '<div class="tablewrap"><table class="ctable"><thead><tr>' +
+      "<th>Group (last author)</th><th>Entries</th><th>Papers</th><th>Active</th>" +
+      "<th>Best</th><th>Most frequent first author</th></tr></thead><tbody>" +
+      p.rows.map(function (r) {
+        return "<tr><td><b>" + esc(r.pi) + "</b></td>" +
+          '<td class="n">' + commas(r.entries) + "</td>" +
+          '<td class="n">' + commas(r.papers) + "</td>" +
+          '<td class="n">' + (r.first ? r.first + (r.last !== r.first ? "–" + r.last : "") : "—") + "</td>" +
+          '<td class="n">' + (r.best_resolution ? r.best_resolution.toFixed(2) + " Å" : "—") + "</td>" +
+          "<td>" + (r.top_first_author ? esc(r.top_first_author) : "—") + "</td></tr>";
+      }).join("") + "</tbody></table></div>" +
+      (p.tail_groups ? '<p class="caveat">' + commas(p.tail_groups) +
+        " further groups account for " + commas(p.tail_entries) + " entries.</p>" : "") +
+      '<p class="caveat">The largest group deposited ' + (p.top_share * 100).toFixed(1) +
+      "% of this family and the top five " + (p.top5_share * 100).toFixed(1) + "%." +
+      (p.n_uncited ? " " + commas(p.n_uncited) + " entries have no primary citation and " +
+        "are counted in the total but in no group." : "") + "</p>";
+  }
+
   function renderAssembly() {
     var a = S.family.assemblies || { n: 0, states: [] };
     if (!a.n) {
@@ -2882,6 +3014,8 @@
     renderCrystals();
     renderQuality();
     renderAssembly();
+    renderNames();
+    renderPeople();
     renderMotifs();
     renderTopology();
     renderFold();
