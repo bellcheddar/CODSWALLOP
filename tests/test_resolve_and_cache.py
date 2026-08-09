@@ -200,3 +200,44 @@ def test_a_rebuild_does_not_make_an_old_family_look_new(tmp_path, monkeypatch):
     assert again["first_seen"] == first, "a rebuild must not move first_seen"
     assert again["built_at"] > first, "but it does move built_at"
     assert [r["slug"] for r in db.recent_families(limit=5)] == ["new", "old"]
+
+
+def test_a_name_that_is_not_a_gene_symbol_still_finds_the_human_protein(monkeypatch):
+    """VEGFR returned twelve unreviewed Drosophila isoforms and no human protein at all.
+
+    No reviewed entry carries VEGFR as a gene name, because the human genes are KDR, FLT1
+    and FLT4, while Drosophila's Pvr lists it as a synonym: the gene query matched nothing
+    reviewed and fell through to the unreviewed tail. So the protein NAME is searched too
+    when the gene finds nothing reviewed.
+    """
+    from codswallop import uniprot
+
+    calls = []
+
+    def fake_search(query, size=12):
+        calls.append(query)
+        if query.startswith("gene:"):
+            return [{"accession": "M9MRE1", "reviewed": False,
+                     "organism": "Drosophila melanogaster",
+                     "name": "PDGF- and VEGF-receptor related, isoform K"}]
+        return [{"accession": "P35968", "reviewed": True, "organism": "Homo sapiens",
+                 "name": "Vascular endothelial growth factor receptor 2"},
+                {"accession": "P53767", "reviewed": True, "organism": "Rattus norvegicus",
+                 "name": "Vascular endothelial growth factor receptor 2"}]
+
+    monkeypatch.setattr(uniprot, "search", fake_search)
+    hits = uniprot.by_gene("VEGFR")
+    assert any(q.startswith("protein_name:") for q in calls), \
+        "the protein name was never searched, so a non-gene-symbol finds nothing reviewed"
+    assert hits[0]["accession"] == "P35968", "the human reviewed entry must lead"
+    assert hits[-1]["accession"] == "M9MRE1", "the unreviewed fly isoform sinks to the bottom"
+
+
+def test_human_leads_the_candidates_even_when_alphabetically_late():
+    from codswallop import uniprot
+    hits = uniprot.rank_candidates([
+        {"accession": "A", "reviewed": True, "organism": "Aequorea victoria", "name": "X"},
+        {"accession": "B", "reviewed": True, "organism": "Homo sapiens", "name": "Z"},
+        {"accession": "C", "reviewed": False, "organism": "Homo sapiens", "name": "A"},
+    ])
+    assert [h["accession"] for h in hits] == ["B", "A", "C"]

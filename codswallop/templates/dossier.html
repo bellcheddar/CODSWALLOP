@@ -18,6 +18,18 @@
     --paper: #FCFAF5; --surface: #F1ECE0;
   }
   * { box-sizing: border-box; }
+  a { color: var(--accent); }
+  a.plain { color: inherit; text-decoration: none; }
+  a.plain:hover { color: var(--accent); }
+  /* The resource bar. Chips rather than a sentence of links, so it scans as a row of
+     places to go rather than as prose that happens to be underlined. */
+  .links { display: flex; flex-wrap: wrap; gap: 5px; margin: 12px 0 2px; }
+  .links a {
+    font-size: 10.5px; text-decoration: none; padding: 3px 8px;
+    border: 1px solid var(--line); border-radius: 11px; background: var(--surface);
+    white-space: nowrap;
+  }
+  .links a:hover { border-color: var(--accent); }
   body {
     margin: 0; padding: 32px 28px 60px; background: var(--paper); color: var(--ink);
     font: 14px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -39,13 +51,21 @@
     border: 1px solid var(--line); border-radius: 4px; color: var(--dim);
   }
 
-  .stats { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0 4px; }
+  /* One line, always. Nine KPIs wrapping to three ragged rows was the first thing on the
+     page and read as a pile rather than a summary; flex with a shared basis and no wrap
+     keeps them on a single row and lets the numbers shrink instead of the row breaking. */
+  .stats { display: flex; flex-wrap: nowrap; gap: 6px; margin: 16px 0 4px; }
   .stat {
     border: 1px solid var(--line); border-radius: 8px; padding: 9px 13px;
     background: var(--surface); min-width: 104px;
   }
-  .stat b { display: block; font-size: 19px; font-family: ui-monospace, Menlo, monospace; }
-  .stat span { font-size: 9.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--mute); }
+  .stat { flex: 1 1 0; min-width: 0; }
+  .stat b { display: block; font-size: 17px; font-family: ui-monospace, Menlo, monospace;
+            white-space: nowrap; }
+  a.stat { text-decoration: none; color: inherit; }
+  a.stat:hover { border-color: var(--accent); }
+  a.stat b { color: var(--accent); }
+  .stat span { display: block; font-size: 9px; text-transform: uppercase; letter-spacing: .07em; color: var(--mute); }
 
   table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 6px; }
   th {
@@ -58,6 +78,24 @@
     font-size: 11.5px; color: var(--dim); border-left: 2px solid var(--brass);
     padding-left: 11px; margin: 10px 0;
   }
+  .seqkey { display: flex; flex-wrap: wrap; gap: 12px; font-size: 10.5px;
+            color: var(--dim); margin: 8px 0 10px; align-items: center; }
+  .sw { display: inline-block; width: 11px; height: 11px; border-radius: 2px;
+        vertical-align: -1px; margin-right: 3px; }
+  .sw-site { background: #C86A1E; } .sw-ptm { background: #7A4FB5; }
+  .sw-ss  { background: #C9A227; } .sw-tm  { background: #2E7D6B; }
+  .sw-mut { background: #B8382C; }
+  .seqline { display: flex; gap: 8px; align-items: baseline; }
+  .seqnum { font-family: ui-monospace, Menlo, monospace; font-size: 10.5px;
+            color: var(--mute); min-width: 42px; text-align: right; user-select: none; }
+  .seqres { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px;
+            letter-spacing: .12em; word-break: break-all; }
+  .seqres i { font-style: normal; border-radius: 2px; padding: 0 .5px; }
+  .r-site { background: #F6DCC2; box-shadow: inset 0 -2px 0 #C86A1E; }
+  .r-ptm  { background: #E6DCF5; box-shadow: inset 0 -2px 0 #7A4FB5; }
+  .r-ss   { background: #F6EFC6; box-shadow: inset 0 -2px 0 #C9A227; }
+  .r-tm   { background: #D3EAE3; box-shadow: inset 0 -2px 0 #2E7D6B; }
+  .r-mut  { background: #F7D6D2; box-shadow: inset 0 -2px 0 #B8382C; }
   .seq {
     font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; line-height: 1.7;
     word-break: break-all; color: var(--dim); border: 1px solid var(--line);
@@ -86,7 +124,7 @@
 </style>
 
 <span class="plate">CODSWALLOP</span>
-<h1>{{ fam.name or slug }}</h1>
+<h1><a class="plain" href="{{ app }}/f/{{ slug }}">{{ fam.name or slug }}</a></h1>
 <p class="sub">
   {{ fam.organism or "" }}{% if fam.seed %} · seed {{ fam.seed }}{% endif %}
   {%- if fam.seed_length %} · {{ fam.seed_length }} aa{% endif %} ·
@@ -94,18 +132,43 @@
   compiled {{ generated }}
 </p>
 
+{# ---- where else this protein is described ---------------------------------------- #}
+{% set acc = (fam.provenance and fam.provenance.names and fam.provenance.names.accession) %}
+<p class="links">
+  <a href="{{ app }}/f/{{ slug }}">Open in CODSWALLOP</a>
+  {% if acc %}
+    <a href="https://www.uniprot.org/uniprotkb/{{ acc }}">UniProt {{ acc }}</a>
+    <a href="https://www.rcsb.org/uniprot/{{ acc }}">RCSB by accession</a>
+    <a href="https://www.ebi.ac.uk/pdbe/pdbe-kb/proteins/{{ acc }}">PDBe-KB</a>
+    <a href="https://alphafold.ebi.ac.uk/entry/{{ acc }}">AlphaFold DB</a>
+    <a href="https://www.ebi.ac.uk/interpro/protein/UniProt/{{ acc }}/">InterPro</a>
+  {% endif %}
+  {% if fam.map and fam.map.reference %}
+    <a href="https://www.cathdb.info/search/by_sequence?pdb={{ fam.map.reference }}">CATH</a>
+    <a href="http://scop.mrc-lmb.cam.ac.uk/search?t=txt;q={{ fam.map.reference }}">SCOP</a>
+    <a href="https://www.rcsb.org/structure/{{ fam.map.reference }}">RCSB {{ fam.map.reference }}</a>
+    <a href="https://www.ebi.ac.uk/pdbe/entry/pdb/{{ fam.map.reference|lower }}">PDBe</a>
+  {% endif %}
+  {% for d in (fam.pfam or []) %}
+    <a href="https://www.ebi.ac.uk/interpro/entry/pfam/{{ d.id }}/">{{ d.id }}</a>
+  {% endfor %}
+</p>
+<p class="note">CATH and SCOP are searched by the reference structure rather than linked by
+   a classification this tool holds: neither is fetched here, so a direct link would be an
+   identifier invented rather than looked up.</p>
+
 {% set s = fam.stats %}
 <div class="stats">
-  <div class="stat"><b>{{ "{:,}".format(s.entries or 0) }}</b><span>Entries</span></div>
-  <div class="stat"><b>{{ "{:,}".format(s.entities or 0) }}</b><span>Polymer entities</span></div>
-  <div class="stat"><b>{{ "{:,}".format(s.constructs or 0) }}</b><span>Distinct constructs</span></div>
-  <div class="stat"><b>{{ s.organisms }}</b><span>Organisms</span></div>
-  <div class="stat"><b>{{ "{:,}".format(s.holo_entries or 0) }}</b><span>Ligand-bound</span></div>
+  <a class="stat" href="{{ app }}/f/{{ slug }}"><b>{{ "{:,}".format(s.entries or 0) }}</b><span>Entries</span></a>
+  <a class="stat" href="{{ app }}/f/{{ slug }}"><b>{{ "{:,}".format(s.entities or 0) }}</b><span>Entities</span></a>
+  <a class="stat" href="{{ app }}/f/{{ slug }}#v=table"><b>{{ "{:,}".format(s.constructs or 0) }}</b><span>Constructs</span></a>
+  <a class="stat" href="{{ app }}/f/{{ slug }}"><b>{{ s.organisms }}</b><span>Organisms</span></a>
+  <a class="stat" href="{{ app }}/f/{{ slug }}#h=1"><b>{{ "{:,}".format(s.holo_entries or 0) }}</b><span>Ligand-bound</span></a>
   {% if s.best_resolution %}
-  <div class="stat"><b>{{ "%.2f"|format(s.best_resolution) }} Å</b><span>Best resolution</span></div>
+  <div class="stat"><b>{{ "%.2f"|format(s.best_resolution) }} Å</b><span>Best res.</span></div>
   {% endif %}
   {% if s.median_resolution %}
-  <div class="stat"><b>{{ "%.2f"|format(s.median_resolution) }} Å</b><span>Median resolution</span></div>
+  <div class="stat"><b>{{ "%.2f"|format(s.median_resolution) }} Å</b><span>Median res.</span></div>
   {% endif %}
 </div>
 <p class="note">
@@ -281,9 +344,22 @@
 {# ---- the seed sequence, so the document is self-contained -------------------------- #}
 {% if fam.seed_sequence %}
 <h2>Seed sequence</h2>
-<p class="sub">{{ fam.seed_length }} residues. Every identity figure in this document is
-   measured against this sequence.</p>
-<div class="seq">{{ fam.seed_sequence }}</div>
+<p class="sub">{{ fam.seed_length }} residues, numbered every ten. Every identity figure in
+   this document is measured against this sequence.</p>
+<p class="seqkey">
+  <span class="sw sw-site"></span>active or binding site
+  <span class="sw sw-ptm"></span>modified residue or glycosylation
+  <span class="sw sw-ss"></span>disulphide cysteine
+  <span class="sw sw-tm"></span>transmembrane or signal
+  <span class="sw sw-mut"></span>the 15 most-substituted positions
+</p>
+{{ annotated_sequence(fam) }}
+<p class="note">Sites are UniProt's curated features where the seed is a UniProt accession;
+   the substituted positions are measured from this family's own alignment rather than
+   annotated, and only the fifteen most substituted are marked: every position carrying a
+   minority substitution would be most of the protein, because the family holds orthologues. A
+   residue can carry more than one and is drawn with the first that applies, in the order of
+   the key above.</p>
 {% endif %}
 
 {# ---- citations --------------------------------------------------------------------- #}

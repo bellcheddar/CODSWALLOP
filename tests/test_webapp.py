@@ -106,8 +106,21 @@ def test_dossier_is_self_contained(dossier_client):
     r = dossier_client.get("/f/lysozyme-c-p00698/dossier")
     assert r.status_code == 200
     html = r.get_data(as_text=True)
-    for tag in ("<script", "<link", "<img", "<iframe", "url("):
+    for tag in ("<script", "<link", "<iframe"):
         assert tag not in html, f"the dossier must not pull in {tag!r}"
+
+    # The rule is that it FETCHES nothing, not that it contains no pictures. An <img> whose
+    # source is a data: URI and an inline <svg> are both part of the file and open on a
+    # machine with no network in ten years' time, which is the whole requirement; forbidding
+    # the tag outright also forbade the ligand depictions and every figure, which is a
+    # poorer document for no gain in durability.
+    import re
+    for src in re.findall(r'<img[^>]*\ssrc="([^"]{0,12})', html):
+        assert src.startswith("data:"), f"an image is fetched from {src!r}"
+    for ref in re.findall(r'url\(([^)]{0,12})', html):
+        assert ref.lstrip("'\"").startswith("data:"), f"the CSS fetches {ref!r}"
+    # Links are fine: an href does not load anything until somebody follows it. Anchors to
+    # the live app and the archives are the point of a reference document.
     assert "@media print" in html, "a dossier that cannot become a PDF is not a dossier"
 
 

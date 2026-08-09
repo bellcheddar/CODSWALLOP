@@ -116,12 +116,49 @@ def search(query: str, size: int = 12) -> list[dict]:
                 break
         return out[:size]
 
-    return db.cached(("uniprot_search", query, size), fetch) or []
+    return db.cached(("uniprot_search", PARSE_VERSION, query, size), fetch) or []
 
 
 def by_gene(gene: str, size: int = 12) -> list[dict]:
-    """Candidates for a bare gene name, across organisms."""
-    return search(f"gene:{gene}", size)
+    """Candidates for a bare gene name, across organisms.
+
+    A gene search alone is not enough, because the thing a person types is often not a gene
+    symbol in the database's sense. `VEGFR` returned twelve unreviewed *Drosophila* isoforms
+    of "PDGF- and VEGF-receptor related" and no human protein at all: no reviewed entry
+    carries VEGFR as a gene name, since the human genes are KDR, FLT1 and FLT4, while
+    Drosophila's Pvr lists it as a synonym. The gene query matched nothing reviewed and fell
+    straight through to the unreviewed tail.
+
+    So the protein NAME is searched too when the gene finds no reviewed entry. Searching the
+    name for VEGFR finds "Vascular endothelial growth factor receptor 1/2/3", which is what
+    somebody typing it meant.
+    """
+    hits = search(f"gene:{gene}", size)
+    if not any(h.get("reviewed") for h in hits):
+        seen = {h["accession"] for h in hits}
+        for extra in search(f'protein_name:"{gene}"', size):
+            if extra["accession"] not in seen:
+                seen.add(extra["accession"])
+                hits.append(extra)
+    return rank_candidates(hits)[:size]
+
+
+def rank_candidates(hits: list[dict]) -> list[dict]:
+    """Reviewed first, then human, then everything else.
+
+    Reviewed-before-unreviewed is the existing rule and the important one. Human-first inside
+    it is new: a disambiguation card for a receptor that lists zebrafish above *Homo sapiens*
+    is technically a list and practically the wrong one, since a structural biologist typing
+    a receptor's name almost always wants the human protein and can see the rest below it.
+    """
+    def key(h):
+        organism = (h.get("organism") or "").lower()
+        return (
+            0 if h.get("reviewed") else 1,
+            0 if organism.startswith("homo sapiens") else 1,
+            (h.get("name") or "").lower(),
+        )
+    return sorted(hits, key=key)
 
 
 # Phase 4 adds the post-translational ones for the motifs panel. `ft_mod_res` is the

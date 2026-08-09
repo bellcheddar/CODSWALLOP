@@ -48,6 +48,12 @@ SECTIONS = [
 ]
 
 
+# How many of the most-substituted positions are marked on the dossier's sequence. Every
+# position with a minority substitution is far too many to be a highlight: see
+# `annotated_sequence`.
+MARKED_MUTATIONS = 15
+
+
 def create_app() -> Flask:
     app = Flask(__name__)
     config.ensure_dirs()
@@ -67,7 +73,78 @@ def create_app() -> Flask:
                 v = 0
             return url_for("static", filename=filename, v=v)
 
-        return {"asset": asset, "version": config.VERSION, "sections": SECTIONS}
+        def annotated_sequence(fam):
+            """The seed sequence, numbered every ten and marked up by what sits on it.
+
+            Server-side because the dossier runs no JavaScript: it has to be finished HTML.
+            Classes only, no inline styles, so the print stylesheet can still reach it.
+
+            Precedence is the order of the key on the page, and a residue carrying two
+            annotations is drawn with the first that applies rather than blended into a
+            colour that means neither.
+            """
+            from markupsafe import Markup, escape
+            seq = fam.get("seed_sequence") or ""
+            if not seq:
+                return Markup("")
+
+            klass = {}
+
+            def mark(pos, name):
+                if 1 <= pos <= len(seq):
+                    klass.setdefault(pos, name)
+
+            # Highest precedence first, so setdefault resolves collisions the way the key
+            # promises.
+            KINDS = [
+                ("r-site", ("active site", "binding site")),
+                ("r-ptm", ("modified residue", "glycosylation", "lipidation")),
+                ("r-ss", ("disulphide bond", "disulfide bond")),
+                ("r-tm", ("transmembrane", "signal peptide")),
+            ]
+            rows = ((fam.get("motifs") or {}).get("rows")) or []
+            for css, kinds in KINDS:
+                for r in rows:
+                    if (r.get("kind") or "").lower() not in kinds:
+                        continue
+                    beg, end = r.get("start"), r.get("end") or r.get("start")
+                    if not beg:
+                        continue
+                    # A disulphide is its two cysteines, never the range between them: that
+                    # bug turned lysozyme's 24-145 bond into 122 consecutive "bonds".
+                    if css == "r-ss" and end and end != beg:
+                        mark(beg, css); mark(end, css)
+                    else:
+                        for q in range(beg, min(end, len(seq)) + 1):
+                            mark(q, css)
+            # Only the most-substituted handful. The `engineered` list is every position
+            # carrying a substantial minority substitution, and across a family assembled at
+            # 30 % identity that is most of the protein: lysozyme marked 98 of its 147
+            # residues, which says nothing except that orthologues differ. The top of the
+            # list is the part that reads as somewhere people actually intervene.
+            engineered = sorted(((fam.get("msa") or {}).get("engineered")) or [],
+                                key=lambda e: -(e.get("substituted") or 0))[:MARKED_MUTATIONS]
+            for e in engineered:
+                if e.get("pos"):
+                    mark(e["pos"], "r-mut")
+
+            WIDTH = 60
+            out = []
+            for start in range(0, len(seq), WIDTH):
+                chunk = seq[start:start + WIDTH]
+                cells = []
+                for i, aa in enumerate(chunk):
+                    pos = start + i + 1
+                    css = klass.get(pos)
+                    gap = " " if (i and i % 10 == 0) else ""
+                    cells.append(gap + (f'<i class="{css}">{escape(aa)}</i>' if css
+                                        else escape(aa)))
+                out.append('<div class="seqline"><span class="seqnum">' + str(start + 1) +
+                           '</span><span class="seqres">' + "".join(cells) + "</span></div>")
+            return Markup("".join(out))
+
+        return {"asset": asset, "version": config.VERSION, "sections": SECTIONS,
+                "annotated_sequence": annotated_sequence}
 
     @app.after_request
     def _no_stale_html(resp):
@@ -178,7 +255,12 @@ def create_app() -> Flask:
             (c for c in (fam.get("citations") or {}).values() if c.get("title")),
             key=lambda c: (c.get("year") is None, -(c.get("year") or 0)),
         )
+        # `app` is the absolute base of this instance, so every link in the document still
+        # resolves years later from a mailbox, where a relative href has nothing to resolve
+        # against. Links do not break self-containment: an href loads nothing until somebody
+        # follows it.
         return render_template("dossier.html", fam=fam, slug=slug, citations=citations,
+                               app=request.url_root.rstrip("/"),
                                generated=time.strftime("%d %B %Y", time.gmtime()))
 
     # ----------------------------------------------------------------------------------
