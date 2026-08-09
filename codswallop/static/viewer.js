@@ -759,8 +759,213 @@
     });
   }
 
+  /* ---- conservation on the surface ---------------------------------------------------
+   *
+   * ConSurf-style: colour the loaded structure by how conserved each residue is across the
+   * whole family. The conservation is already computed per SEED position; the only hard part
+   * is which residue of this structure is which position of the seed.
+   *
+   * That mapping is the same one that shipped wrong in the contacts artefact for 52 of 71
+   * families, so it is not assumed here. Mol* gives `label_seq_id` (the entity sequence
+   * index) alongside `auth_seq_id` and `label_comp_id`, and the conservation columns carry
+   * the seed's own residue letter, so a candidate offset can be CHECKED: if the structure's
+   * residues do not read as the seed's residues, the offset is wrong and we say so rather
+   * than colouring the protein with a lie.
+   */
+  var THREE_TO_ONE = {
+    ALA: "A", ARG: "R", ASN: "N", ASP: "D", CYS: "C", GLN: "Q", GLU: "E", GLY: "G",
+    HIS: "H", ILE: "I", LEU: "L", LYS: "K", MET: "M", PHE: "F", PRO: "P", SER: "S",
+    THR: "T", TRP: "W", TYR: "Y", VAL: "V", MSE: "M", SEC: "U", PYL: "O",
+  };
+
+  // Below this share of residues agreeing with the seed, the offset is not believed and
+  // nothing is coloured. A real match is far above it; a wrong frame is far below.
+  var MIN_AGREEMENT = 0.6;
+  // How far either side of the expected offset to look. Enough for an N-terminal expression
+  // tag, which is the ordinary reason a construct's numbering does not start where the
+  // alignment says it does.
+  var OFFSET_WINDOW = 60;
+
+  /** Every polymer residue of the structure: chain, auth number, entity index, one letter. */
+  function residueList(molstar, struct) {
+    var SE = molstar.lib.structure.StructureElement;
+    var P = molstar.lib.structure.StructureProperties;
+    var loc = SE.Location.create(struct);
+    var seen = {}, out = [];
+    for (var i = 0; i < struct.units.length; i++) {
+      var unit = struct.units[i];
+      loc.unit = unit;
+      var els = unit.elements;
+      for (var j = 0; j < els.length; j++) {
+        loc.element = els[j];
+        if (P.atom.label_atom_id(loc) !== "CA") continue;
+        var chain = P.chain.auth_asym_id(loc);
+        var auth = P.residue.auth_seq_id(loc);
+        var key = chain + "|" + auth;
+        if (seen[key]) continue;
+        seen[key] = 1;
+        var one = THREE_TO_ONE[P.atom.label_comp_id(loc)];
+        out.push({
+          chain: chain, auth: auth,
+          label: P.residue.label_seq_id(loc),
+          aa: one || "X",
+        });
+      }
+    }
+    return out;
+  }
+
+  /** The offset from entity index to seed position that best explains the residues seen.
+   *
+   *  Scored on residue identity, not assumed from `query_beg`. An N-terminal tag shifts a
+   *  construct's entity numbering away from where the alignment starts, and the expected
+   *  offset is then wrong by the length of the tag. Starting the search AT the expected
+   *  offset means the common case is decided on the first try and the search only earns its
+   *  keep on the constructs that need it. */
+  function bestOffset(residues, columns, expected) {
+    var byPos = {};
+    for (var i = 0; i < columns.length; i++) byPos[columns[i].pos] = columns[i].seed;
+    var order = [expected], d;
+    for (d = 1; d <= OFFSET_WINDOW; d++) { order.push(expected + d); order.push(expected - d); }
+
+    var best = null;
+    for (var k = 0; k < order.length; k++) {
+      var off = order[k], hit = 0, tested = 0;
+      for (var r = 0; r < residues.length; r++) {
+        var pos = residues[r].label + off;
+        var seed = byPos[pos];
+        if (!seed) continue;
+        tested++;
+        if (seed === residues[r].aa) hit++;
+      }
+      if (!tested) continue;
+      var score = hit / tested;
+      if (!best || score > best.score) best = { offset: off, score: score, tested: tested };
+      // A near-perfect frame cannot be beaten; stop rather than scanning 120 more.
+      if (best.score > 0.97) break;
+    }
+    return best;
+  }
+
+  /** Colour the structure already loaded in `viewer` by per-seed-position conservation.
+   *
+   *  Resolves to a report: whether it was applied, the offset it settled on, and how well
+   *  the residues agreed. The caller shows that, because a reader looking at a coloured
+   *  protein deserves to know it was checked. */
+  function conservationColour(viewer, pdbId, opts) {
+    opts = opts || {};
+    var columns = opts.columns || [];
+    return ensureMolstar().then(function (molstar) {
+      var plugin = viewer.plugin;
+      var current = plugin.managers.structure.hierarchy.current.structures[0];
+      if (!current || !current.cell || !current.cell.obj) {
+        return { ok: false, reason: "no structure is loaded" };
+      }
+      if (!columns.length) return { ok: false, reason: "this family has no alignment" };
+
+      var residues = residueList(molstar, current.cell.obj.data);
+      if (!residues.length) return { ok: false, reason: "no polymer residues to colour" };
+
+      var fit = bestOffset(residues, columns, (opts.queryBeg || 1) - 1);
+      if (!fit || fit.score < MIN_AGREEMENT) {
+        return {
+          ok: false,
+          reason: "this entry's residues could not be matched to the family alignment",
+          agreement: fit ? fit.score : 0,
+        };
+      }
+
+      var byPos = {};
+      for (var i = 0; i < columns.length; i++) byPos[columns[i].pos] = columns[i];
+
+      // Five bands rather than a continuous ramp. The underlying number is a frequency over
+      // a family whose depth varies by three orders of magnitude between positions, and a
+      // smooth gradient invites reading a precision into it that is not there.
+      //
+      // Cut at THIS FAMILY'S OWN quintiles, not at fixed thresholds. A family is a set of
+      // similar sequences by construction, so conservation does not use the bottom of its
+      // range: carbonic anhydrase has nothing at all below 0.5 and only 1 % below 0.7, so
+      // fixed bands painted 80 % of it in the top two colours and never once used the
+      // "variable" end. Quintiles guarantee the picture separates this family's own most
+      // variable fifth from its most conserved, which is what the view is for. The cost is
+      // that two families are not comparable by colour, so the panel says the scale is
+      // relative and prints the values the bands actually fall at.
+      var sorted = columns.map(function (c) { return c.conservation; })
+                          .sort(function (a, b) { return a - b; });
+      function quantile(q) { return sorted[Math.min(sorted.length - 1,
+                                                    Math.floor(q * sorted.length))]; }
+      var edges = [quantile(0.2), quantile(0.4), quantile(0.6), quantile(0.8)];
+      var PALETTE = ["#4a6fa5", "#6f93bd", "#b9a06a", "#d9922f", "#e8620c"];
+      var BANDS = PALETTE.map(function (colour, idx) {
+        return {
+          // The last band has to catch 1.0 itself, so its edge sits above the maximum.
+          max: idx < edges.length ? edges[idx] : Infinity,
+          colour: colour,
+          label: idx === 0 ? "most variable" : (idx === 4 ? "most conserved" : ""),
+        };
+      });
+      var buckets = BANDS.map(function () { return []; });
+      var coloured = 0;
+      for (var r = 0; r < residues.length; r++) {
+        var col = byPos[residues[r].label + fit.offset];
+        if (!col) continue;
+        // Only residues that ARE the seed's residue are coloured. One that disagrees is a
+        // substitution in this particular structure, and painting the family's conservation
+        // onto it would be answering for a residue that is not there.
+        if (col.seed !== residues[r].aa) continue;
+        for (var bnd = 0; bnd < BANDS.length; bnd++) {
+          if (col.conservation < BANDS[bnd].max) {
+            buckets[bnd].push({ auth_asym_id: residues[r].chain, auth_seq_id: residues[r].auth });
+            coloured++;
+            break;
+          }
+        }
+      }
+
+      var colours = [{ kind: "color", params: { color: "#33405a" } }];
+      BANDS.forEach(function (band, idx) {
+        if (buckets[idx].length) {
+          colours.push({ kind: "color",
+                         params: { color: band.colour, selector: buckets[idx] } });
+        }
+      });
+
+      var spec = {
+        kind: "single",
+        metadata: { version: "1", title: "Conservation" },
+        root: { kind: "root", children: [
+          { kind: "download",
+            params: { url: "https://files.rcsb.org/download/" + pdbId.toUpperCase() + ".cif" },
+            children: [
+              { kind: "parse", params: { format: "mmcif" }, children: [
+                { kind: "structure", params: { type: "model" }, children: [
+                  { kind: "component", params: { selector: "polymer" }, children: [
+                    { kind: "representation", params: { type: "cartoon" },
+                      children: colours },
+                  ] },
+                  { kind: "component", params: { selector: "ligand" }, children: [
+                    { kind: "representation", params: { type: "ball_and_stick" }, children: [
+                      { kind: "color", params: { color: "#c9a063" } },
+                    ] },
+                  ] },
+                ] },
+              ] },
+            ] },
+        ] },
+      };
+
+      return viewer.loadMvsData(JSON.stringify(spec), "mvsj", { replaceExisting: true })
+        .then(function () {
+          return { ok: true, offset: fit.offset, agreement: fit.score,
+                   coloured: coloured, residues: residues.length, bands: BANDS,
+                   edges: edges };
+        });
+    });
+  }
+
   global.CodswallopViewer = {
     show: show, ensure: ensureMolstar, superpose: superpose, addAlphaFold: addAlphaFold,
     focusResidue: focusResidue, showLigand: showLigand,
+    conservationColour: conservationColour, _bestOffset: bestOffset,
   };
 })(window);

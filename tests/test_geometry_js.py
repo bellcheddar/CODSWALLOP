@@ -39,6 +39,21 @@ def test_one_outlier_does_not_set_the_scale_for_the_whole_family():
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_conservation_frame_is_scored_not_assumed():
+    """Which residue of a structure is which position of the seed. The same conversion
+    shipped wrong in the contacts artefact for 52 of 71 families and looked entirely
+    plausible on screen, so here it is scored on residue identity and refused when it does
+    not agree: an N-terminal tag shifts the frame by its own length, and an unrelated chain
+    must get no frame at all rather than the least-bad one."""
+    r = subprocess.run(
+        ["node", str(ROOT / "tests" / "js" / "conservation_check.js"),
+         str(ROOT / "codswallop" / "static" / "viewer.js")],
+        capture_output=True, text=True, timeout=60,
+    )
+    assert r.returncode == 0, r.stderr or r.stdout
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
 def test_depth_does_not_override_the_dim_class():
     """Written as an inline opacity, the depth cue beat `.node.dim` and silently disabled
     every filter on the map: the entity count changed and nothing on the map did, which

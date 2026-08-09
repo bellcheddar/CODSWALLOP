@@ -2558,6 +2558,8 @@
     if (sp) sp.addEventListener("click", superposeFamily);
     var af = $("btnAlphaFold");
     if (af) af.addEventListener("click", addAlphaFold);
+    var cons = $("btnConservation");
+    if (cons) cons.addEventListener("click", colourByConservation);
   }
 
   /* ---- conservation, the logo, and the engineered positions ----------------------- */
@@ -2854,12 +2856,65 @@
   }
 
   var currentViewer = null;
+  var currentPdbId = null;
 
   function loadStructure(pdbId) {
     if (!pdbId) return;
+    currentPdbId = pdbId;
     window.CodswallopViewer.show($("structureHost"), pdbId).then(function (v) {
       currentViewer = v;
       $("superposeNote").textContent = "";
+    });
+  }
+
+  /* Colour the loaded structure by how conserved each residue is across the family.
+     The button reports what the mapping did, because the mapping is the part that can be
+     wrong: the same seed-coordinate conversion shipped broken in the contacts artefact for
+     52 of 71 families and looked entirely plausible on screen. */
+  function colourByConservation() {
+    var note = $("superposeNote");
+    if (!currentViewer || !currentPdbId) {
+      note.textContent = "Load a structure first.";
+      return;
+    }
+    var cols = (S.family.msa || {}).columns || [];
+    if (!cols.length) {
+      note.textContent = "No family alignment to colour by.";
+      return;
+    }
+    var member = null;
+    for (var i = 0; i < S.members.length; i++) {
+      if (S.members[i].pdb_id === currentPdbId) { member = S.members[i]; break; }
+    }
+    note.textContent = "Matching " + currentPdbId + " to the family alignment…";
+    window.CodswallopViewer.conservationColour(currentViewer, currentPdbId, {
+      columns: cols,
+      queryBeg: member ? member.query_beg : 1,
+    }).then(function (res) {
+      if (!res.ok) {
+        note.innerHTML = "<b>Not coloured.</b> " + esc(res.reason) +
+          (res.agreement != null
+            ? " Only " + Math.round(res.agreement * 100) + "% of its residues read as the " +
+              "seed's, so the frame is not trusted rather than guessed."
+            : "");
+        return;
+      }
+      var swatches = (res.bands || []).map(function (b) {
+        return '<i style="display:inline-block;width:13px;height:9px;vertical-align:middle;' +
+          'background:' + b.colour + '"></i>';
+      }).join("");
+      note.innerHTML = "<b>Coloured by conservation.</b> " + swatches +
+        " blue is this family's most variable fifth, orange its most conserved. <b>The " +
+        "scale is relative to this family</b> (its own quintiles, at " +
+        (res.edges || []).map(function (e) { return e.toFixed(2); }).join(", ") +
+        "), because a family is similar sequences by construction and a fixed scale leaves " +
+        "the variable end unused: two families are therefore not comparable by colour. " +
+        commas(res.coloured) + " of " + commas(res.residues) +
+        " residues matched the seed at " + Math.round(res.agreement * 100) +
+        "% agreement; one that differs from the seed here is left uncoloured rather than " +
+        "given the family's answer for a residue it does not have.";
+    }).catch(function (err) {
+      note.textContent = "Colouring failed: " + err.message;
     });
   }
 
