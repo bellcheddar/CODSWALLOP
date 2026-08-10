@@ -1,4 +1,4 @@
-# NEXT — where CODSWALLOP is, and what to do next
+# NEXT: where CODSWALLOP is, and what to do next
 
 Handover note, 2026-08-10. Everything described here is committed, pushed and deployed.
 Live at [codswallop.mdeller.com](https://codswallop.mdeller.com).
@@ -21,7 +21,7 @@ Fetching the single chain from the RCSB **Model Server** instead:
 | 8GLV transfer | 453 MB | **533 kB** |
 | Peak RSS | 6.3 GB | **102 MB** |
 | Per structure | ~0.8 s | **~0.4-0.6 s** |
-| 232-chain family | — | ~90 s of fetching |
+| 232-chain family | n/a | ~90 s of fetching |
 
 gemmi was tried and is 12x faster on the same file while still needing ~6 GB. The parser was
 never the problem; the file really is that big.
@@ -97,7 +97,7 @@ adding the seed offset to PLIP's *author* residue number which already carries i
 families were wrong. It was invisible on carbonic anhydrase, the family it was validated on,
 because that family's `query_beg` is 1 so the offset is zero. Now mapped by **aligning**, as
 `topology.map_to_seed` already did. **If you touch a seed-coordinate conversion, check the
-mapped residue identity against the seed sequence** — that check found it and would have
+mapped residue identity against the seed sequence**: that check found it and would have
 prevented it.
 
 **Verify in a real browser, with real input events.** Three shipped features had never worked
