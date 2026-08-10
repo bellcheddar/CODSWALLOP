@@ -1,11 +1,16 @@
 """The structural embedding: pairwise TM-scores, and the map positions they produce.
 
-**This module runs on a workstation, never on the droplet.** It downloads mmCIF files and
-does real numerical work, and the droplet has two cores shared with eight apps and 19 GB
-free. The web app never imports it: it reads the JSON artefact this writes, and falls back
-to the sequence-identity placeholder when there is none. `tmtools` and `biotite` are
-therefore in requirements-dev.txt, not requirements.txt. (numpy is on the droplet either
-way, as a biopython dependency; it is the mmCIF parsing and TM-align that are not.)
+**This module runs on the droplet now.** It used to say the opposite, and the reason it
+could not was memory: parsing a whole deposited assembly to extract one chain's alpha
+carbons peaked at 6.3 GB on a box with 2.2 GB free and no swap. Fetching the single chain
+from the Model Server instead peaks at about 100 MB, so the droplet runs it comfortably and
+two families at once barely move the free-memory figure. `tmtools` and `biotite` live in
+requirements-compute.txt and are installed there.
+
+The WEB process still never imports this. It reads the JSON artefact through `embed_io`,
+which imports nothing beyond the standard library, and falls back to the sequence-identity
+placeholder when there is none: a web worker that has never imported biotite cannot be
+killed by parsing a structure.
 
 Two decisions worth stating, because both bound the cost:
 
@@ -105,28 +110,40 @@ def _chain_cif(pdb_id: str, chain: str) -> Optional[Path]:
     return path
 
 
+def structure_path(pdb_id: str, chain: Optional[str] = None) -> Optional[Path]:
+    """A local mmCIF for this structure, preferring the single chain.
+
+    The one place anything else should ask for a file. `ca_trace` used to download the whole
+    entry as a side effect and topology quietly depended on that: when the fetch moved to the
+    Model Server, `_cif_path` stopped existing and topology got no records at all, with no
+    error, because a missing file was already a legitimate "no layout for this structure".
+    A side effect that another module relies on is not an interface.
+    """
+    if chain:
+        got = _chain_cif(pdb_id, chain)
+        if got is not None:
+            return got
+    path = _cif_path(pdb_id)
+    if not path.exists():
+        if http.download(f"https://files.rcsb.org/download/{pdb_id.upper()}.cif",
+                         path) is None:
+            return None
+    if path.stat().st_size / 1e6 > MAX_WHOLE_FILE_MB:
+        logger.warning("skipping %s: %.0f MB whole-file parse", pdb_id,
+                       path.stat().st_size / 1e6)
+        return None
+    return path
+
+
 def ca_trace(pdb_id: str, chain: Optional[str] = None) -> Optional[tuple]:
     """Alpha-carbon coordinates and the one-letter sequence for one chain.
 
     Returns (coords, sequence) or None. Chains are truncated at MAX_RESIDUES because
     TM-align is quadratic per pair as well as across the family.
     """
-    path = None
-    if chain:
-        path = _chain_cif(pdb_id, chain)
+    path = structure_path(pdb_id, chain)
     if path is None:
-        path = _cif_path(pdb_id)
-        if not path.exists():
-            url = f"https://files.rcsb.org/download/{pdb_id.upper()}.cif"
-            if http.download(url, path) is None:
-                return None
-        # Refusing to parse it is better than being killed by the OOM reaper half way
-        # through a family, which on a box with no swap takes the other apps with it.
-        size_mb = path.stat().st_size / 1e6
-        if size_mb > MAX_WHOLE_FILE_MB:
-            logger.warning("skipping %s: %.0f MB whole-file parse, no chain available",
-                           pdb_id, size_mb)
-            return None
+        return None
     try:
         struct = get_structure(CIFFile.read(str(path)), model=1)
     except Exception:

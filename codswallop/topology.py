@@ -117,8 +117,8 @@ def _sse_from_biotite(pdb_id: str, chain: Optional[str]) -> list[dict]:
     import biotite.structure as struc
     import biotite.structure.io.pdbx as pdbx
 
-    path = embed._cif_path(pdb_id)
-    if not path.exists():
+    path = embed.structure_path(pdb_id, chain)
+    if path is None:
         return []
     arr = pdbx.get_structure(pdbx.CIFFile.read(str(path)), model=1)
     arr = arr[struc.filter_amino_acids(arr)]
@@ -144,10 +144,8 @@ def secondary_structure(pdb_id: str, chain: Optional[str] = None) -> tuple:
     """(records, method) for one structure, DSSP where available and P-SEA otherwise."""
     binary = dssp_available()
     if binary:
-        path = embed._cif_path(pdb_id)
-        if not path.exists():
-            embed.ca_trace(pdb_id, chain)      # downloads it as a side effect
-        if path.exists():
+        path = embed.structure_path(pdb_id, chain)
+        if path is not None:
             with tempfile.NamedTemporaryFile(suffix=".dssp", delete=False) as tmp:
                 out_path = tmp.name
             try:

@@ -80,3 +80,27 @@ def test_the_topology_aligner_survives_an_unknown_residue_too():
     mapping = topology.map_to_seed(recs, seed)
     assert mapping, "an unknown residue must not empty the mapping"
     assert len(mapping) >= len(seed) - 2
+
+
+def test_topology_asks_for_a_path_rather_than_relying_on_a_download_side_effect(monkeypatch):
+    """`ca_trace` used to fetch the whole entry and topology depended on that happening.
+
+    When the fetch moved to the Model Server the whole file stopped appearing, `_cif_path`
+    no longer existed, and topology returned no records at all with no error, because a
+    missing file was already a legitimate "no 2D layout for this structure". A side effect
+    another module relies on is not an interface, so there is one now.
+    """
+    from codswallop import embed, topology
+
+    asked = []
+    monkeypatch.setattr(embed, "structure_path",
+                        lambda pdb, chain=None: asked.append((pdb, chain)) or None)
+    assert topology._sse_from_biotite("1ABC", "A") == []
+    assert asked == [("1ABC", "A")], "topology no longer goes through structure_path"
+
+
+def test_structure_path_prefers_the_chain(monkeypatch, tmp_path):
+    from codswallop import embed
+    monkeypatch.setattr(embed, "_chain_cif", lambda p, c: tmp_path / f"{p}_{c}.cif")
+    got = embed.structure_path("8GLV", "0A")
+    assert got.name == "8GLV_0A.cif", "the whole assembly was chosen over the chain"
