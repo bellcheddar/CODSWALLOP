@@ -164,6 +164,10 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("family", "first_seen", "INTEGER"),
     ("entry", "validation", "TEXT"),
     ("entry", "has_sf", "INTEGER"),
+    # Filed by the precompute batch rather than because a reader asked for it. The landing
+    # page lists the two separately: "recent searches" is a record of what people looked at,
+    # and mixing three thousand batch-filed families into it would bury that entirely.
+    ("family", "precomputed", "INTEGER"),
 ]
 
 
@@ -422,6 +426,32 @@ def family_row(slug: str) -> Optional[dict]:
         "SELECT slug, query, kind, seed, name, organism, built_at, parse_version "
         "FROM family WHERE slug = ?", (slug,)).fetchone()
     return dict(row) if row else None
+
+
+def precomputed_families(limit: int = 60) -> list[dict]:
+    """Families filed by the precompute batch, largest first.
+
+    Ordered by how much of the archive each one is rather than by when it was built. The
+    batch works down a list ranked that way, so build order and size order are nearly the
+    same thing, but only *nearly*: a family that failed and was retried later would otherwise
+    appear to be less important than it is.
+    """
+    rows = connect().execute(
+        "SELECT f.slug, f.name, f.organism, f.kind, f.built_at, "
+        "       (SELECT COUNT(*) FROM entry e WHERE e.slug = f.slug) AS n_entries "
+        "FROM family f WHERE f.precomputed = 1 "
+        "ORDER BY n_entries DESC, f.name LIMIT ?",
+        (limit,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def mark_precomputed(slug: str) -> None:
+    """Flag a family as batch-filed. Separate from saving it, so the batch can mark families
+    that were already present without rebuilding them."""
+    conn = connect()
+    conn.execute("UPDATE family SET precomputed = 1 WHERE slug = ?", (slug,))
+    conn.commit()
 
 
 def recent_families(limit: int = 60) -> list[dict]:

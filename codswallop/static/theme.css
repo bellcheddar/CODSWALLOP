@@ -1149,3 +1149,12 @@ a.dchip:hover { border-color: var(--accent); color: var(--text); text-decoration
   width: 1%; padding-right: 14px; color: var(--dim); font-weight: 500;
 }
 #detailBody .ctable td { vertical-align: top; }
+
+/* The precomputed list. Same furniture as recent searches, set apart by a rule and a
+   quieter heading tag: it is a different kind of thing (chosen by size, built in advance)
+   and reading it as "what people have been looking at" would be wrong. */
+.recent.precomputed { margin-top: 26px; padding-top: 20px; border-top: 1px solid var(--line); }
+.recent h2 .tag {
+  font-family: var(--sans); font-size: 10.5px; font-weight: 400; color: var(--mute);
+  text-transform: none; letter-spacing: 0; margin-left: 8px;
+}

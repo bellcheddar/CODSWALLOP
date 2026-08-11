@@ -74,6 +74,28 @@
       {% endif %}
     </div>
     {% endif %}
+
+    {# Kept apart from the searches above, deliberately. "Recent searches" is a record of
+       what people looked at, and folding thousands of batch-filed families into it would
+       bury that entirely. Ordered by size rather than by build time, because size is why
+       these were chosen. #}
+    {% if precomputed %}
+    <div class="recent precomputed">
+      <h2>Precomputed <span class="tag">the most-deposited families, built in advance</span></h2>
+      <ul id="precomputedList">
+        {% for r in precomputed %}
+        <li{% if loop.index > 10 %} class="extra" hidden{% endif %}><a
+          href="{{ url_for('family_page', slug=r.slug) }}">{{ r.name or r.slug }}
+          <b>{{ r.n_entries }}</b></a></li>
+        {% endfor %}
+      </ul>
+      {% if precomputed|length > 10 %}
+      <button type="button" class="morebtn" id="showMorePre">
+        Show all {{ precomputed|length }}
+      </button>
+      {% endif %}
+    </div>
+    {% endif %}
   </div>
 </div>
 {% endblock %}
@@ -82,15 +104,19 @@
 <script>
   // The example chips fill the box rather than navigating, so the reader sees what kind of
   // thing they just asked for before it resolves.
-  var more = document.getElementById("showMore");
-  if (more) {
-    more.addEventListener("click", function () {
-      document.querySelectorAll("#recentList .extra").forEach(function (li) {
+  // One handler shape for both lists rather than two copies that drift apart: the second
+  // list was added later, and a copy-pasted handler is exactly how one of them ends up dead
+  // without anybody noticing, since a button that does nothing looks like a button.
+  [["showMore", "#recentList"], ["showMorePre", "#precomputedList"]].forEach(function (pair) {
+    var btn = document.getElementById(pair[0]);
+    if (!btn) return;
+    btn.addEventListener("click", function () {
+      document.querySelectorAll(pair[1] + " .extra").forEach(function (li) {
         li.hidden = false;
       });
-      more.remove();
+      btn.remove();
     });
-  }
+  });
 
   document.querySelectorAll(".hints .eg").forEach(function (b) {
     b.addEventListener("click", function () {

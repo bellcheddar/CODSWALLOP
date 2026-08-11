@@ -34,3 +34,7 @@ codswallop-*.txt
 # contacts pipeline depends on its CONECT serial-gap fix, and a copy that can drift out
 # of the repo is a copy that will.
 !pipeline/cif2plip.py
+
+# One-off precompute batch: target list, runner, logs and artefacts-in-progress.
+# The app does not need it and a three-thousand-line target list is not source.
+/precompute/

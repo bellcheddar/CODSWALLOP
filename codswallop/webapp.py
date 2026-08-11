@@ -185,7 +185,8 @@ def create_app() -> Flask:
     # ----------------------------------------------------------------------------------
     @app.route("/")
     def home():
-        return render_template("landing.html", recent=db.recent_families(), query=None)
+        return render_template("landing.html", recent=db.recent_families(),
+                               precomputed=db.precomputed_families(limit=200), query=None)
 
     @app.route("/lookup")
     def lookup():

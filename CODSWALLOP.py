@@ -17,6 +17,7 @@ import argparse
 import json
 import sys
 import time
+from pathlib import Path
 
 from codswallop import config, db
 
@@ -511,6 +512,40 @@ def cmd_artefacts(args) -> int:
     return 0
 
 
+def cmd_precomputed(args) -> int:
+    """Flag families as batch-filed, from a list of the queries that built them.
+
+    Separate from the build so it can run on the droplet, where the families are filed but
+    the batch that chose them ran somewhere else. Marking is idempotent and marks only what
+    is already there: a query that did not resolve, or a family the droplet has not
+    assembled yet, is reported rather than silently counted as done.
+    """
+    from codswallop import family, resolve
+
+    db.init()
+    queries = [q.strip() for q in Path(args.list).read_text().splitlines()
+               if q.strip() and not q.startswith("#")]
+    queries = [q.split("\t")[0].strip() for q in queries]
+    marked = missing = 0
+    for q in queries:
+        try:
+            r = resolve.resolve(q)
+            if r["status"] != "resolved":
+                missing += 1
+                continue
+            slug = family.slug_for(r["seed"])
+            if db.family_row(slug):
+                db.mark_precomputed(slug)
+                marked += 1
+            else:
+                missing += 1
+        except Exception:
+            missing += 1
+    print(f"  marked {marked:,} families as precomputed; "
+          f"{missing:,} not filed here yet")
+    return 0
+
+
 def cmd_stats(_args) -> int:
     db.init()
     for k, v in db.stats().items():
@@ -579,6 +614,10 @@ def main(argv=None) -> int:
     sp.add_argument("--limit", type=int, default=50, help="how many to list")
     sp.add_argument("--served", metavar="SLUG", help="mark one as built and pushed")
     sp.set_defaults(fn=cmd_queue)
+
+    sp = sub.add_parser("precomputed", help="flag families from a batch list")
+    sp.add_argument("list", help="file of queries, one per line (tab-separated extras ok)")
+    sp.set_defaults(fn=cmd_precomputed)
 
     sub.add_parser("stats", help="cache statistics").set_defaults(fn=cmd_stats)
     sub.add_parser("purge", help="drop expired cache entries").set_defaults(fn=cmd_purge)
