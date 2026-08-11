@@ -261,13 +261,25 @@ def pairwise_tm(traces: list[tuple], progress=None, workers: Optional[int] = Non
     total = n * (n - 1) // 2
     done = 0
 
-    if total >= MIN_PAIRS_FOR_POOL and (workers is None or workers > 1):
-        import os
+    import os
+
+    # One worker per core. The web process shares this box, so leaving a core is tempting,
+    # but the worker already runs at nice 15 and yields to it: taking a core away as well
+    # would be paying the cost twice.
+    #
+    # CODSWALLOP_ALIGN_WORKERS lets a caller running SEVERAL families at once divide the
+    # machine between them. Without it each family sizes its own pool to the whole box, so
+    # three concurrent families put thirty processes on ten cores: measured at load average
+    # 51 on a 10-core Mac, which is contention, not throughput.
+    #
+    # Resolved before the branch below, not inside it, so that an allocation of one worker
+    # takes the serial path rather than paying to build a process pool, ship every trace to
+    # a single child and marshal the results back for no parallelism at all.
+    n_workers = workers or int(os.environ.get("CODSWALLOP_ALIGN_WORKERS") or 0) \
+        or max(1, (os.cpu_count() or 2))
+
+    if total >= MIN_PAIRS_FOR_POOL and n_workers > 1:
         from concurrent.futures import ProcessPoolExecutor
-        # One worker per core. The web process shares this box, so leaving a core is
-        # tempting, but the worker already runs at nice 15 and yields to it: taking a core
-        # away as well would be paying the cost twice.
-        n_workers = workers or max(1, (os.cpu_count() or 2))
         pairs = [(i, j) for i in range(n) for j in range(i + 1, n)]
         # Interleaved, not contiguous: a contiguous block of a triangular matrix is a
         # different amount of work from its neighbour, and the pool then waits on whichever
