@@ -205,7 +205,39 @@ def transforms_to_reference(traces: list[tuple], ref: int = 0) -> list[Optional[
     return out
 
 
-def pairwise_tm(traces: list[tuple], progress=None) -> np.ndarray:
+# Below this many pairs the pool costs more than it saves: spawning workers and pickling the
+# traces into each of them is a fixed second or two, and a small family aligns in less.
+MIN_PAIRS_FOR_POOL = 400
+
+# Traces, handed to each worker once at start-up rather than pickled per task. A module
+# global is the only way a `spawn` worker can hold them, which is what macOS and Python 3.14
+# default to.
+_WORKER_TRACES: Optional[list] = None
+
+
+def _worker_init(traces):
+    global _WORKER_TRACES
+    _WORKER_TRACES = traces
+
+
+def _score(i: int, j: int, traces) -> float:
+    ci, si = traces[i]
+    cj, sj = traces[j]
+    try:
+        r = tm_align(ci, cj, si, sj)
+        return max(r.tm_norm_chain1, r.tm_norm_chain2)
+    except Exception:                           # noqa: BLE001 - an unalignable pair is 0
+        return 0.0
+
+
+def _score_block(block: list) -> list:
+    """One worker's share of the pairs. Returned as a block, not per pair: the alignment of a
+    small chain takes a millisecond and an inter-process round trip costs more than that."""
+    return [(i, j, _score(i, j, _WORKER_TRACES)) for i, j in block]
+
+
+def pairwise_tm(traces: list[tuple], progress=None, workers: Optional[int] = None
+                ) -> np.ndarray:
     """Symmetric TM-score matrix.
 
     TM-align is directional: normalising by chain 1 or chain 2 gives different numbers when
@@ -213,11 +245,51 @@ def pairwise_tm(traces: list[tuple], progress=None) -> np.ndarray:
     construct against a full-length one). The larger of the two is taken, which is the
     convention for asking "are these the same fold" rather than "is one contained in the
     other".
+
+    Spread across PROCESSES, not threads. `tm_align` is a C extension that holds the GIL, so
+    threads make it slower rather than faster: measured on 435 pairs, two threads came out at
+    0.77x and eight at 0.60x, all of them losing to the serial loop. Processes scale close to
+    linearly over the same work: 2.62x on two, 3.75x on four, 4.60x on eight. That matters
+    more than any hardware decision, because a serial loop uses exactly one core however many
+    the machine has, so buying cores without this buys nothing at all.
+
+    The matrix is assembled from returned (i, j, score) triples rather than written in place
+    by each worker, so the result cannot depend on the order the blocks happen to finish in.
     """
     n = len(traces)
     tm = np.eye(n)
     total = n * (n - 1) // 2
     done = 0
+
+    if total >= MIN_PAIRS_FOR_POOL and (workers is None or workers > 1):
+        import os
+        from concurrent.futures import ProcessPoolExecutor
+        # One worker per core. The web process shares this box, so leaving a core is
+        # tempting, but the worker already runs at nice 15 and yields to it: taking a core
+        # away as well would be paying the cost twice.
+        n_workers = workers or max(1, (os.cpu_count() or 2))
+        pairs = [(i, j) for i in range(n) for j in range(i + 1, n)]
+        # Interleaved, not contiguous: a contiguous block of a triangular matrix is a
+        # different amount of work from its neighbour, and the pool then waits on whichever
+        # worker drew the long chains.
+        blocks = [pairs[k::n_workers] for k in range(n_workers)]
+        try:
+            with ProcessPoolExecutor(max_workers=n_workers, initializer=_worker_init,
+                                     initargs=(traces,)) as pool:
+                for got in pool.map(_score_block, blocks):
+                    for i, j, score in got:
+                        tm[i, j] = tm[j, i] = score
+                    done += len(got)
+                    if progress:
+                        progress("align", done, total, "")
+            return tm
+        except Exception:                       # noqa: BLE001
+            # A pool that cannot start is not a reason to fail the family: fall through to
+            # the serial loop, which is slower and always works.
+            logger.warning("parallel alignment unavailable, falling back to serial",
+                           exc_info=True)
+            tm = np.eye(n)
+            done = 0
     # Reported from inside the loop, not once before it. This is the longest silent stretch
     # in the whole pipeline: spike is 32 minutes of it, and an unattended supervisor watching
     # for silence cannot tell that from a wedged socket. Announcing the alignment before
