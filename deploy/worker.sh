@@ -12,8 +12,10 @@
 #     single-threaded: a second job buys nothing and costs the web workers their core.
 #   * `nice`d and `ionice`d, because a reader waiting on a page matters more than an
 #     artefact that nobody is watching.
-#   * Embeddings and topology only. Both need a single chain, which the Model Server
-#     returns in a few hundred kB; PLIP needs whole structures and is not run here yet.
+#   * Embedding, then topology, then contacts. The first two need a single chain, which the
+#     Model Server returns in a few hundred kB. Contacts needs whole structures, so it caps
+#     the file size and counts what it skipped; it runs last and at nice 19 because it is
+#     hours where the others are minutes, and CONTACTS=0 disables it.
 #   * Chain files are deleted after each family. They are a cache, the disk is 18 GB shared
 #     with everything else on the box, and re-fetching one is under half a second.
 #
@@ -73,6 +75,22 @@ while IFS= read -r row; do
       say "topology for ${slug} in $(( $(date +%s) - t1 ))s"
     else
       say "topology failed for ${slug}; the embedding stands"
+    fi
+
+    # Contacts last, and optional. PLIP is one to three minutes per entry over up to sixty
+    # entries, so this is hours where the embedding is minutes: it must not stand between a
+    # reader and their map. CONTACTS=0 turns it off entirely if the box gets busy.
+    #
+    # It needs the WHOLE structure, unlike the other two, so entries above the size cap are
+    # skipped and counted rather than parsed. Its failure does not hold the family either;
+    # the artefact it would write is an addition to a page that already works.
+    if [[ "${CONTACTS:-1}" == "1" ]]; then
+      t2=$(date +%s)
+      if nice -n 19 ionice -c3 "$PY" -u CODSWALLOP.py contacts "$query" >> "$LOG" 2>&1; then
+        say "contacts for ${slug} in $(( $(date +%s) - t2 ))s"
+      else
+        say "contacts failed for ${slug}; the map and diagram stand"
+      fi
     fi
 
     # Only now: marking it served on a failed build would drop it from the queue and the

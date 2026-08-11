@@ -125,12 +125,15 @@ def structure_path(pdb_id: str, chain: Optional[str] = None) -> Optional[Path]:
             return got
     path = _cif_path(pdb_id)
     if not path.exists():
-        if http.download(f"https://files.rcsb.org/download/{pdb_id.upper()}.cif",
-                         path) is None:
+        # Capped at the fetch rather than checked after it: the transfer is aborted the
+        # moment it passes the limit, so an assembly we would refuse to parse never costs
+        # its own size in bandwidth or disk.
+        if http.download(f"https://files.rcsb.org/download/{pdb_id.upper()}.cif", path,
+                         max_bytes=int(MAX_WHOLE_FILE_MB * 1e6)) is None:
+            logger.warning("skipping %s: no chain available and the entry is over %d MB",
+                           pdb_id, MAX_WHOLE_FILE_MB)
             return None
     if path.stat().st_size / 1e6 > MAX_WHOLE_FILE_MB:
-        logger.warning("skipping %s: %.0f MB whole-file parse", pdb_id,
-                       path.stat().st_size / 1e6)
         return None
     return path
 

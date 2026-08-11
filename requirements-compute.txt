@@ -11,3 +11,9 @@
 tmtools>=0.3            # TM-align bindings: the pairwise structural similarity matrix
 biotite>=1.0            # mmCIF parsing, alpha-carbon extraction
 gemmi>=0.6              # structure reading for the PLIP conversion
+
+# PLIP and its toolchain, for the interaction fingerprints. Pure-Python PLIP plus wheels that
+# carry the obabel and pdb_tidy binaries, so this still needs no compiler.
+plip>=2.3               # protein-ligand interaction profiler
+openbabel-wheel>=3.1    # supplies the obabel binary cif2plip shells out to
+pdb-tools>=2.5          # supplies pdb_tidy, for the CONECT serial-gap fix

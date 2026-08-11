@@ -1,7 +1,13 @@
 """Interaction fingerprints: PLIP, run family-wide.
 
-**Workstation only**, like `embed.py`. This shells out to PLIP and OpenBabel, and the droplet
-has neither. The web app reads the JSON artefact and nothing else.
+Runs wherever the artefacts are built, which is now the droplet. It shells out to PLIP and
+OpenBabel; the web app imports none of this and reads the JSON artefact through
+`contacts_io`, which imports nothing beyond the standard library.
+
+This is the one artefact that still needs the WHOLE deposited structure. Interaction
+detection is every atom, every ligand and every chain, so the single-chain fetch that made
+the embedding runnable on a small box does not apply here, and an entry above
+MAX_STRUCTURE_MB is skipped and counted rather than parsed.
 
 The mmCIF-to-PDB conversion is **not** reimplemented here. `pipeline/cif2plip.py` already does
 it correctly, including the one non-obvious part: `pdb_tidy` leaves a one-number serial gap at
@@ -125,6 +131,18 @@ def _observed_chains(st) -> dict:
 # orthologue. Identity cannot separate those two cases, so it is not asked to.
 MIN_CHAIN_IDENTITY = 0.2
 
+# PLIP is the one artefact that genuinely needs the WHOLE structure: interaction detection is
+# every atom, every ligand, every chain, so the per-chain fetch the embedding uses does not
+# apply and the memory problem comes straight back. 8GLV is 453 MB and peaks at 6.3 GB to
+# parse, on a droplet with about 2.2 GB free and no swap.
+#
+# So an entry too large to convert safely is skipped, and the artefact records how many were
+# and why. That loses interaction data for the very largest complexes, which is the honest
+# trade: the alternative is not slower contacts, it is an OOM that takes the other eight apps
+# on the box down with it. The cap is generous next to what a family actually holds, where
+# the median entry is about 1 MB.
+MAX_STRUCTURE_MB = 30
+
 
 def _chain_mappings(observed: dict, seed_sequence: str,
                     only: Optional[set] = None) -> dict:
@@ -187,8 +205,15 @@ def contacts_for(pdb_id: str, workdir: Path) -> Optional[tuple]:
     cif = STRUCT_DIR / f"{pdb_id.upper()}.cif"
     if not cif.exists():
         from . import http
-        if http.download(f"https://files.rcsb.org/download/{pdb_id.upper()}.cif", cif) is None:
-            return None
+        # Aborted at the cap rather than downloaded and then declined: a HEAD on
+        # files.rcsb.org times out, so the size cannot be known in advance, and streaming
+        # until the limit is passed costs at most the limit.
+        if http.download(f"https://files.rcsb.org/download/{pdb_id.upper()}.cif", cif,
+                         max_bytes=int(MAX_STRUCTURE_MB * 1e6)) is None:
+            logger.info("skipping %s for contacts: over %d MB", pdb_id, MAX_STRUCTURE_MB)
+            return "too_big"
+    if cif.stat().st_size / 1e6 > MAX_STRUCTURE_MB:
+        return "too_big"
 
     out = workdir / pdb_id.upper()
     out.mkdir(parents=True, exist_ok=True)
@@ -294,7 +319,7 @@ def build(fam: dict, max_entries: int = 60, progress=None) -> Optional[dict]:
         return None
 
     all_rows: list[dict] = []
-    ok = failed = 0
+    ok = failed = too_big = 0
     t0 = time.time()
 
     with tempfile.TemporaryDirectory(prefix="codswallop-plip-") as tmp:
@@ -302,6 +327,12 @@ def build(fam: dict, max_entries: int = 60, progress=None) -> Optional[dict]:
             if progress:
                 progress(i + 1, len(chosen), m["pdb_id"])
             got = contacts_for(m["pdb_id"], Path(tmp))
+            if got == "too_big":
+                # Counted apart from failures. A conversion that broke is a bug to chase; a
+                # structure too large to hold in memory is a decision this made, and the two
+                # should not be added together into one number nobody can act on.
+                too_big += 1
+                continue
             if got is None:
                 failed += 1
                 continue
@@ -409,6 +440,11 @@ def build(fam: dict, max_entries: int = 60, progress=None) -> Optional[dict]:
         "built_at": int(time.time()),
         "entries_analysed": ok,
         "entries_failed": failed,
+        # Entries skipped because the deposited file is too large to convert on this
+        # machine. Reported so the panel can say the fingerprint is missing the biggest
+        # complexes rather than implying they had no interactions.
+        "entries_too_big": too_big,
+        "max_structure_mb": MAX_STRUCTURE_MB,
         "seconds": round(time.time() - t0, 1),
         "n_contacts": len(all_rows),
         "by_type": per_type.most_common(),

@@ -2749,6 +2749,13 @@
     $("contactSub").textContent = commas(c.n_contacts) + " contacts across " +
       c.entries_analysed + " ligand-bound entries" +
       (c.entries_failed ? " (" + c.entries_failed + " failed to convert)" : "") +
+      // Reported apart from failures and never folded into them. A structure skipped for its
+      // size is a decision this pipeline made, not a bug, and saying so is the difference
+      // between "these complexes have no interactions" and "we did not look at them".
+      (c.entries_too_big
+        ? " · " + c.entries_too_big + " of the largest complexes skipped, each over " +
+          (c.max_structure_mb || 30) + " MB to convert"
+        : "") +
       " · " + c.by_type.map(function (t) { return t[0].replace(/_/g, " ") + " " + t[1]; })
         .slice(0, 4).join(", ");
 

@@ -646,3 +646,41 @@ def test_a_whole_file_too_big_to_parse_safely_is_refused(monkeypatch, tmp_path):
     monkeypatch.setattr(embed, "STRUCT_DIR", tmp_path)
     monkeypatch.setattr(embed, "_chain_cif", lambda *a: None)
     assert embed.ca_trace("8GLV", "0A") is None
+
+
+def test_a_structure_too_big_for_contacts_is_counted_apart_from_a_failure(monkeypatch, tmp_path):
+    """PLIP needs the WHOLE structure, so the single-chain fetch that made the embedding
+    runnable on a small box does not apply and the 6.3 GB worst case returns.
+
+    A skip and a failure must not be added together: a conversion that broke is a bug to
+    chase, a structure too large to hold in memory is a decision this made, and the panel
+    says so rather than implying those complexes had no interactions.
+    """
+    from codswallop import contacts
+
+    monkeypatch.setattr(contacts, "STRUCT_DIR", tmp_path)
+    monkeypatch.setattr(contacts, "_load_cif2plip", lambda: None)
+    # download() returns None when it aborts past the cap.
+    import codswallop.http as http
+    monkeypatch.setattr(http, "download", lambda *a, **k: None)
+    assert contacts.contacts_for("8GLV", tmp_path) == "too_big"
+
+
+def test_an_oversized_download_is_aborted_rather_than_finished_and_refused(monkeypatch, tmp_path):
+    """A HEAD on files.rcsb.org times out, so the size cannot be known in advance. Streaming
+    until the cap is passed costs at most the cap; finishing a 453 MB transfer and then
+    declining to parse it costs 453 MB of bandwidth and disk on a box with neither spare."""
+    from codswallop import http
+
+    class FakeResp:
+        status_code = 200
+        def raise_for_status(self): pass
+        def iter_content(self, chunk_size=0):
+            for _ in range(100):
+                yield b"x" * 1000
+        def close(self): pass
+
+    monkeypatch.setattr(http, "get", lambda *a, **k: FakeResp())
+    dest = tmp_path / "big.cif"
+    assert http.download("http://x/big.cif", dest, max_bytes=10_000) is None
+    assert not dest.exists(), "a refused download must leave nothing behind"

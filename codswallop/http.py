@@ -176,7 +176,8 @@ def parallel_map(fn: Callable, items: list, workers: Optional[int] = None) -> li
         return list(pool.map(fn, items))
 
 
-def download(url: str, dest, skip_if_exists: bool = True, params: Optional[dict] = None):
+def download(url: str, dest, skip_if_exists: bool = True, params: Optional[dict] = None,
+             max_bytes: Optional[int] = None):
     """Stream a URL to `dest` (a Path). Returns dest, or None on 404.
 
     Written to a unique temporary name and moved into place, so a half-written file can
@@ -198,8 +199,18 @@ def download(url: str, dest, skip_if_exists: bool = True, params: Optional[dict]
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(f"{dest.suffix}.{os.getpid()}.{threading.get_ident()}.part")
     try:
+        written = 0
         with open(tmp, "wb") as fh:
             for chunk in resp.iter_content(chunk_size=1 << 16):
+                written += len(chunk)
+                # Abort rather than finish and refuse. A HEAD on files.rcsb.org times out,
+                # so the size cannot be known in advance; streaming until the cap is passed
+                # costs at most the cap, where downloading 453 MB and then declining to
+                # parse it costs 453 MB of transfer and disk on a box that has neither to
+                # spare.
+                if max_bytes is not None and written > max_bytes:
+                    resp.close()
+                    return None
                 fh.write(chunk)
         tmp.replace(dest)
     finally:
