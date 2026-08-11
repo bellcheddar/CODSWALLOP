@@ -151,7 +151,7 @@ def test_a_family_built_by_an_older_parser_is_not_fresh(tmp_path, monkeypatch):
 
 
 def test_a_request_whose_artefact_arrived_is_no_longer_open(tmp_path, monkeypatch):
-    """The queue is cleared by drain_queue.sh when it builds something, but an artefact
+    """The queue is cleared by worker.sh when it builds something, but an artefact
     pushed from a workstation that was not draining the queue left the row behind: four
     families sat in the queue asking for contacts they already had."""
     from codswallop import artefacts, config, db

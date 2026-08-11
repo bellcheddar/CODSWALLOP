@@ -113,7 +113,7 @@ CREATE INDEX IF NOT EXISTS ix_entity_pdb ON entity(slug, pdb_id);
 -- across, so a family assembled for the first time by a reader on the live site has an
 -- artefact on neither machine and falls back to the identity placeholder. The droplet is
 -- the only machine that knows this happened and the one machine that cannot fix it, so it
--- records the request here and the workstation drains the queue (deploy/drain_queue.sh).
+-- records the request here and the droplet's own worker drains it (deploy/worker.sh).
 --
 -- `hits` is what makes the queue a priority order rather than a log: a family five people
 -- opened is worth an hour of TM-align before one that a crawler touched once.
@@ -478,7 +478,7 @@ def open_requests(limit: int = 50) -> list[dict]:
     """Unserved artefact requests, most-wanted first.
 
     A request whose artefact has since arrived is not open, however it arrived. The queue is
-    cleared by `drain_queue.sh` when it builds something, but an artefact pushed from a
+    cleared by `worker.sh` when it builds something, but an artefact arriving from a
     workstation that was not draining the queue leaves the row behind: four families sat in
     the queue asking for contacts they already had.
     """

@@ -38,32 +38,33 @@ in **6,142 s (~1h42m)** on one `nice`d core. Peak RSS 102 MB; free memory never 
 
 ---
 
-## What is left, in order
+## What is left
 
-### 1. Topology through the worker
-The code path is fixed (`topology` now calls `structure_path`), but `deploy/worker.sh` only
-runs `embed`. Add the topology build to the same pass. Cheap: topology needs one chain too.
+**Nothing from the migration.** All three steps are done and verified on the droplet:
 
-Caveat: `mkdssp` is not installed on the droplet and is not pip-installable (it ships with
-CCP4). Topology already falls back to biotite's P-SEA and **records which method produced
-the artefact**, so this works today with an honest quality note rather than silently.
+1. **Embeddings** through the Model Server, one chain at a time.
+2. **Topology** through the same route, `CODSWALLOP.py topology <query>`, biotite P-SEA
+   where `mkdssp` is absent (it ships with CCP4 and is not pip-installable) with the artefact
+   recording which method drew it.
+3. **Contacts** with a 30 MB structure cap, skips counted apart from failures and reported on
+   the panel.
 
-### 2. Contacts (PLIP) with a size cap
-The one artefact that genuinely needs **whole** structures: interaction detection needs every
-atom, every ligand, every chain, so the per-chain trick does not apply and the 6.3 GB worst
-case comes straight back.
+`deploy/sync.sh`, `drain_queue.sh`, `push_embeddings.sh`, `scripts/overnight.sh` and the
+launchd timer are deleted, and the launchd job is unloaded. The Mac builds nothing.
 
-Plan: skip any entry whose mmCIF exceeds a threshold, prefer smaller structures when picking
-the 60 representatives, and **show on the panel how many entries were skipped and why**. The
-very largest complexes then get no interaction data at all, which is the honest trade.
+Proven end to end on VEGFR-1 (P17948, 1,328 entries), queued by a reader and built entirely
+on the droplet: embedding 1h42m at 102 MB peak, topology by P-SEA in 1 s, PLIP 6 entries in
+21 s. Free memory never dipped below 2.2 GB.
 
-Also slow: 1-3 min per entry x up to 60 entries, so 2-6 hours per family on a droplet core.
+### Ideas, not commitments
 
-### 3. Retire the Mac path
-`deploy/drain_queue.sh` and the Mac launchd timer are now dead weight. Delete them and the
-README references once 1 and 2 are running.
-
----
+- **`mkdssp` on the droplet** would upgrade every topology from P-SEA to real DSSP, which is
+  the better assignment and the only one that gives bridge partners. It is a CCP4 component,
+  so it needs a system package rather than a wheel.
+- **Contacts is the slow one**: 1-3 min per entry over up to 60 entries, so hours per family
+  against minutes for the rest. It runs last, at nice 19, and `CONTACTS=0` disables it.
+- The dossier still has no **lego plots**, and the structure still is the RCSB's render
+  rather than one drawn from the family's own superposition.
 
 ## How the droplet worker works
 

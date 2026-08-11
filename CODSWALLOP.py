@@ -86,8 +86,9 @@ def cmd_build(args) -> int:
 def cmd_embed(args) -> int:
     """Compute the pairwise TM-score matrix and the map positions it implies.
 
-    Workstation only: this downloads mmCIF files and does real numerical work. The droplet
-    reads the JSON artefact it writes; push it with deploy/push_embeddings.sh.
+    Runs on the droplet, which is now the only machine that builds anything. It fetches one
+    chain per representative from the Model Server, so a family costs about a minute of
+    transfer and peaks near 100 MB rather than the 6.3 GB a whole-assembly parse needed.
     """
     from codswallop import embed, family, resolve
 
@@ -156,7 +157,7 @@ def cmd_contacts(args) -> int:
     """Run PLIP over a family's ligand-bound entries and store the fingerprint.
 
     Workstation only: this shells out to PLIP and OpenBabel. Push the artefact with
-    deploy/push_embeddings.sh, which ships data/contacts/ alongside data/embeddings/.
+    the droplet builds it in place, so there is nothing to ship.
     """
     from codswallop import contacts, family, resolve
 
@@ -450,7 +451,7 @@ def _report_artefacts() -> None:
 def cmd_queue(args) -> int:
     """List, or resolve, the families a reader asked for that no workstation has built.
 
-    `--json` is what `deploy/drain_queue.sh` reads over SSH, so its shape is an interface:
+    `--json` is what `deploy/worker.sh` reads on the droplet, so its shape is an interface:
     one object per line rather than one array, so the reading end can stream it and a
     truncated transfer loses a family instead of the whole queue.
     """
@@ -473,7 +474,8 @@ def cmd_queue(args) -> int:
         print("  %-42s %-12s %-9s %4d hit%s %6s entries" % (
             r["slug"], (r["query"] or "-")[:12], r["kind"], r["hits"],
             " " if r["hits"] == 1 else "s", r["n_entries"] or "?"))
-    print("\n  Drain them with:  bash deploy/drain_queue.sh")
+    print("\n  The droplet's own worker drains this every 15 minutes "
+          "(deploy/worker.sh).")
     return 0
 
 
@@ -482,7 +484,7 @@ def cmd_artefacts(args) -> int:
 
     This is what closes the loop on families a READER created: they exist only in the
     droplet's database, so a workstation never knows to build artefacts for them and they
-    sit on the placeholder map indefinitely. `deploy/push_embeddings.sh` calls this over SSH
+    sit on the placeholder map indefinitely. `deploy/worker.sh` calls this
     after every push so the gap is named rather than discovered months later.
     """
     from codswallop import artefacts

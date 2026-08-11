@@ -31,7 +31,9 @@ if [[ -x .venv/bin/python ]]; then
   if [[ "${stale:-0}" -gt 0 ]]; then
     echo "WARNING: ${stale} local famil$([[ $stale -eq 1 ]] && echo y || echo ies) have an"
     echo "         out-of-date embedding. Deploying now puts them on the placeholder map"
-    echo "         until you run:  python CODSWALLOP.py warm  &&  bash deploy/push_embeddings.sh"
+    echo "         until the droplet's own worker rebuilds them: it runs every 15"
+    echo "         minutes (deploy/worker.sh), or force a pass with"
+    echo "         systemctl start codswallop-worker.service"
     echo
   fi
 fi
