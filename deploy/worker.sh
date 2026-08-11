@@ -59,6 +59,22 @@ while IFS= read -r row; do
   # nice 15 and idle I/O: this must never be the reason a page is slow.
   if nice -n 15 ionice -c3 "$PY" -u CODSWALLOP.py embed "$query" >> "$LOG" 2>&1; then
     say "embedded ${slug} in $(( $(date +%s) - t0 ))s"
+
+    # Topology after the embedding, deliberately: the diagram is drawn on the reference
+    # structure the EMBEDDING chose, so running it first would draw on a structure the
+    # family is not superposed onto. Seconds rather than minutes, and it needs one chain.
+    #
+    # Its failure does NOT hold the family in the queue. The PDBe publishes a 2D layout for
+    # most of the archive and not all of it, so "no topology" is a legitimate answer for
+    # this structure rather than work still owed; leaving the family queued for it would
+    # mean retrying a thing that will never succeed, every fifteen minutes, for ever.
+    t1=$(date +%s)
+    if nice -n 15 ionice -c3 "$PY" -u CODSWALLOP.py topology "$query" >> "$LOG" 2>&1; then
+      say "topology for ${slug} in $(( $(date +%s) - t1 ))s"
+    else
+      say "topology failed for ${slug}; the embedding stands"
+    fi
+
     # Only now: marking it served on a failed build would drop it from the queue and the
     # family would sit on the placeholder for ever with nothing recording that it needs one.
     "$PY" CODSWALLOP.py queue --served "$slug" >> "$LOG" 2>&1

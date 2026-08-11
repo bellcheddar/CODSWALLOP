@@ -123,6 +123,35 @@ def cmd_embed(args) -> int:
     return 0
 
 
+def cmd_topology(args) -> int:
+    """Draw the secondary-structure topology for one family.
+
+    Separate from `embed` rather than folded into it, even though the worker runs them back
+    to back. The diagram is drawn on the reference structure the EMBEDDING chose, so it has
+    to run after one exists, and a family whose embedding failed should still be able to get
+    a diagram once that is fixed without recomputing 27,000 alignments to reach it.
+    """
+    from codswallop import family, resolve, topology, topology_io
+
+    db.init()
+    result = resolve.resolve(args.query)
+    if result["status"] != "resolved":
+        print(result.get("message") or result.get("prompt"), file=sys.stderr)
+        return 1
+    fam = family.get_or_build(result["seed"], args.query)
+    t0 = time.time()
+    art = topology.write(fam)
+    if not art:
+        # Not an error. The PDBe publishes a 2D layout for most of the archive and not all
+        # of it, and a family whose reference has none should not fail the worker's pass.
+        print(f"  no topology available for {fam['slug']}")
+        return 0
+    print(f"  {art['n_strands']} strands, {art['n_helices']} helices on "
+          f"{art.get('reference')} by {art.get('method')}, {time.time() - t0:.0f}s")
+    print(f"  wrote {topology_io.artefact_path(fam['slug'])}")
+    return 0
+
+
 def cmd_contacts(args) -> int:
     """Run PLIP over a family's ligand-bound entries and store the fingerprint.
 
@@ -515,6 +544,10 @@ def main(argv=None) -> int:
     sp.add_argument("--max", type=int, default=None,
                     help="cap on representative structures (default 260)")
     sp.set_defaults(fn=cmd_embed)
+
+    sp = sub.add_parser("topology", help="draw the secondary-structure topology for a family")
+    sp.add_argument("query")
+    sp.set_defaults(fn=cmd_topology)
 
     sp = sub.add_parser("contacts", help="run PLIP family-wide (workstation only)")
     sp.add_argument("query", help="the family to profile")
