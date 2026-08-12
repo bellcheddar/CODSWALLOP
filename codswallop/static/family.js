@@ -2764,7 +2764,10 @@
           (c.entries_analysed === 1 ? "entry" : "entries") +
           (c.entries_too_big ? ", skipping " + c.entries_too_big + " too large to convert" : "") +
           " and placed no contact on the seed sequence.") + "</p>";
-      $("fingerprint").innerHTML = "";
+      // Not left empty: a panel with a heading and nothing under it reads as something that
+      // failed to load rather than as a grid with no cells in it.
+      $("fingerprint").innerHTML = '<p class="empty">A fingerprint is ligand against residue, ' +
+        "so there is no grid to draw without ligands.</p>";
       return;
     }
     $("contactSub").textContent = commas(c.n_contacts) + " contacts across " +
