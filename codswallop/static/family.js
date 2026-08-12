@@ -76,6 +76,29 @@
   function commas(n) { return (n == null) ? "—" : n.toLocaleString("en-GB"); }
   function res(r) { return r == null ? "—" : Number(r).toFixed(2) + " Å"; }
 
+  /* A residue named the way a structural biologist says it: `P21`, not `residue 21`.
+   *
+   * One helper because the same position is quoted by the conservation track, the coverage
+   * census, the disorder runs, the motif table and both fold diagrams, and four of those
+   * used to print a bare number. A number alone is not checkable against a structure, and
+   * the panels disagreeing on how to say it made them read as unrelated tools.
+   *
+   * `pos` is 1-based in seed coordinates, which is what every artefact stores. Falls back to
+   * the bare number rather than inventing a letter, since a family seeded on a PDB entry can
+   * have no seed sequence at all. */
+  function resLabel(pos) {
+    if (pos == null) return "—";
+    var seq = (S.family && S.family.seed_sequence) || "";
+    return (seq.charAt(pos - 1) || "") + pos;
+  }
+
+  /** A residue range, collapsed to one label when it is a single residue. */
+  function resRange(start, end, dash) {
+    if (start == null) return "—";
+    if (end == null || end === start) return resLabel(start);
+    return resLabel(start) + (dash || "–") + resLabel(end);
+  }
+
   /* ==================================================================================
      3. Header, stat strip
      ================================================================================== */
@@ -1326,8 +1349,15 @@
         var hS = ((base - 2) * seen[i]) / maxd;
         parts.push('<rect class="seen" x="' + x + '" y="' + (base - hS).toFixed(2) +
           '" width="' + w + '" height="' + Math.max(hS, 0).toFixed(2) +
-          '"><title>residue ' + (i + 1) + ": in " + depth[i] + " constructs, resolved in " +
-          seen[i] + "</title></rect>");
+          // Named as the conservation track names it (P21, not "residue 21"), so a position
+          // read off one plot can be found on the other without translating between them.
+          // No "of N" denominator: the only total to hand is the PEAK depth over all
+          // positions, and "in 66 of 1686 constructs" reads as a count of the family's
+          // constructs when it is really a count at whichever residue is best covered.
+          '"><title>' + resLabel(i + 1) + ": in " + depth[i] + " constructs, resolved in " +
+          seen[i] +
+          (depth[i] ? " (" + Math.round((100 * seen[i]) / depth[i]) + "% of those)" : "") +
+          "</title></rect>");
       }
     }
     parts.push('<text class="covaxis" x="' + pad + '" y="' + (H - 3) + '">1</text>');
@@ -1666,17 +1696,58 @@
         out.push('<text class="covaxis" x="4" y="' + (Y(cat) + 3) + '">' +
           esc(cat.length > 14 ? cat.slice(0, 13) + "…" : cat) + "</text>");
       });
+      /* One circle per condition, sized by how many entries used it.
+       *
+       * This was a dot per entry, scattered vertically by `Math.random()` to stop them
+       * landing on top of each other. Jitter is a poor trade here: it spends the y axis,
+       * which carries the precipitant, on hiding overlaps, so a band 9px tall reads as a
+       * spread in something and means nothing at all; it moves every point on every redraw,
+       * so the picture is never the same twice and nothing can be pointed at; and it still
+       * fails at the only place it matters, where a hundred entries share one condition.
+       *
+       * Binning says the thing the panel is for. "What actually worked" is a question about
+       * which conditions were used repeatedly and produced good crystals, and a big circle
+       * is that answer directly. Area with the count, not radius: radius would make a
+       * 100-entry condition ten times the width of a 1-entry one and swallow the row.
+       */
+      var PH_BIN = 0.5;
+      var bins = {};
       pts.forEach(function (p) {
         if (p.ph == null) return;
-        // Better resolution is a hotter dot: mint at the good end, oxide at the poor end.
-        var f = (p.resolution == null || rMax === rMin) ? 0.5
-              : (p.resolution - rMin) / (rMax - rMin);
+        var ph = Math.round(p.ph / PH_BIN) * PH_BIN;
+        // A separator that cannot occur in a precipitant name, so two different
+        // conditions cannot collide on one key.
+        var key = p.precipitant + "\u2400" + ph;
+        var b = bins[key];
+        if (!b) {
+          b = bins[key] = { ph: ph, precipitant: p.precipitant, n: 0, best: null, ids: [] };
+        }
+        b.n += 1;
+        if (p.resolution != null && (b.best == null || p.resolution < b.best)) {
+          b.best = p.resolution;
+        }
+        if (b.ids.length < 6) b.ids.push(p.pdb_id);
+      });
+      var binList = Object.keys(bins).map(function (k) { return bins[k]; });
+      var maxN = binList.reduce(function (a, b) { return Math.max(a, b.n); }, 1);
+      // Largest first, so a big circle never hides a small one it overlaps: SVG paints in
+      // document order and has no z-index.
+      binList.sort(function (a, b) { return b.n - a.n; });
+      binList.forEach(function (b) {
+        // Colour on the BEST resolution in the bin, not the mean: the question is whether a
+        // condition ever produced a good crystal, and an average buries that under the
+        // repeats.
+        var f = (b.best == null || rMax === rMin) ? 0.5 : (b.best - rMin) / (rMax - rMin);
         var col = f < 0.34 ? "var(--mint)" : (f < 0.67 ? "var(--cyan)" : "var(--oxide)");
-        out.push('<circle class="scatterdot" cx="' + X(p.ph).toFixed(1) + '" cy="' +
-          (Y(p.precipitant) + (Math.random() - 0.5) * 9).toFixed(1) +
-          '" r="3.1" fill="' + col + '" fill-opacity="0.75"><title>' + esc(p.pdb_id) +
-          " · pH " + p.ph + (p.resolution ? " · " + p.resolution + " Å" : "") +
-          " · " + esc(p.precipitant) + "</title></circle>");
+        var r = 2.4 + 8.0 * Math.sqrt(b.n / maxN);
+        out.push('<circle class="scatterdot" cx="' + X(b.ph).toFixed(1) + '" cy="' +
+          Y(b.precipitant).toFixed(1) + '" r="' + r.toFixed(2) + '" fill="' + col +
+          '" fill-opacity="0.6" stroke="' + col + '" stroke-opacity="0.9"><title>' +
+          esc(b.precipitant) + " · pH " + b.ph.toFixed(1) + "\n" + b.n +
+          (b.n === 1 ? " entry" : " entries") +
+          (b.best != null ? ", best " + b.best.toFixed(2) + " Å" : "") + "\n" +
+          esc(b.ids.join(" ")) + (b.n > b.ids.length ? " …" : "") +
+          "</title></circle>");
       });
       svg.setAttribute("viewBox", "0 0 " + W + " " + H);
       svg.setAttribute("preserveAspectRatio", "none");
@@ -1685,7 +1756,10 @@
         '<span><i style="background:var(--mint)"></i>best resolution</span>' +
         '<span><i style="background:var(--cyan)"></i>middle</span>' +
         '<span><i style="background:var(--oxide)"></i>poorest</span>' +
-        "<span>" + pts.length + " entries with a recorded pH. Vertical jitter only.</span>";
+        '<span><i class="sizekey"></i>circle area is how many entries used that ' +
+        "condition</span>" +
+        "<span>" + commas(pts.length) + " entries with a recorded pH, binned at " +
+        PH_BIN + " pH units.</span>";
     }
 
     function condTable(title, rows) {
@@ -2028,11 +2102,13 @@
 
     $("motifTable").innerHTML =
       '<div class="tablewrap"><table class="ctable"><thead><tr>' +
-      "<th>Site</th><th>Where</th><th>Source</th>" +
+      "<th>Site</th><th>Residue</th><th>Source</th>" +
       (m.grounded ? "<th>In constructs</th><th>Resolved</th>" : "") +
       "</tr></thead><tbody>" +
       m.rows.map(function (r, idx) {
-        var where = r.start === r.end ? String(r.start) : r.start + "&ndash;" + r.end;
+        // The residue, not merely its index: "P21" can be checked against a structure
+        // where a bare "21" has to be looked up first.
+        var where = resRange(r.start, r.end, "&ndash;");
         return '<tr class="drow" data-motif="' + idx + '">' +
           "<td><b>" + esc(r.name) + "</b>" +
           (r.description && r.description !== r.name
@@ -2053,6 +2129,86 @@
      conservation track, the coverage census and the domain ribbon. The arcs are the part a
      linear track cannot express: which strands actually hydrogen-bond to which, from DSSP's
      bridge partners, which is what makes this a topology diagram rather than a ribbon. */
+  /* What to say about one secondary-structure element, for both diagrams that draw them.
+   *
+   * The range in residues rather than indices ("P21–D32"), because that is the form you can
+   * check against a structure, and the same form the motif table and the conservation track
+   * use. Then the things the shape itself cannot show: how conserved the element is across
+   * the family, which is what separates a structural strut from a functional one; which
+   * strands it pairs with, which is the sheet; and any annotated site that falls inside it,
+   * which is usually the reason anybody is pointing at it. */
+  function elementTip(e, t) {
+    var lines = [(e.kind === "helix" ? "Helix " : "Strand ") +
+                 resRange(e.start, e.end) + " · " + e.length + " residues"];
+
+    // Mean conservation over the element, from the alignment already loaded for the logo
+    // and the conservation track. Absent for a family with no alignment, and simply left
+    // out rather than printed as a blank row.
+    var cols = (S.family.msa && S.family.msa.columns) || [];
+    var sum = 0, n = 0;
+    cols.forEach(function (c) {
+      if (c.pos >= e.start && c.pos <= e.end && c.conservation != null) {
+        sum += c.conservation; n += 1;
+      }
+    });
+    if (n) lines.push("mean conservation " + Math.round((100 * sum) / n) + "% over " + n +
+                      " aligned positions");
+
+    // Strand pairings, named by the residues they run against rather than by element id.
+    if (t && t.pairings && t.pairings.length) {
+      var byId = {};
+      t.elements.forEach(function (el2) { byId[el2.id] = el2; });
+      var partners = [];
+      t.pairings.forEach(function (p) {
+        var other = p.a === e.id ? byId[p.b] : (p.b === e.id ? byId[p.a] : null);
+        if (other) partners.push(resRange(other.start, other.end) + " (" + p.bridges + ")");
+      });
+      if (partners.length) {
+        lines.push("pairs with " + partners.join(", ") + "; the number is hydrogen bonds");
+      }
+    }
+
+    // Annotated sites falling inside it: curated features and pattern hits alike, named as
+    // the Motifs tab names them so the two panels can be read together.
+    var sites = ((S.family.motifs || {}).rows || []).filter(function (r) {
+      return r.start != null && r.start <= e.end && (r.end == null ? r.start : r.end) >= e.start;
+    });
+    if (sites.length) {
+      lines.push("contains " + sites.slice(0, 4).map(function (r) { return r.name; }).join(", ") +
+                 (sites.length > 4 ? " and " + (sites.length - 4) + " more" : ""));
+    }
+    return lines.join("\n");
+  }
+
+  /* The same for one element of the PDBe's fold diagram.
+   *
+   * Separate from `elementTip` because the two speak different numbering. The PDBe reports
+   * its layout in the reference entry's own residue numbers, which are not the seed's: on
+   * 1IOT its first strand is 42-46 and the same strand is 61-63 in seed coordinates, and on
+   * acetylcholinesterase every element is out by 31. Both are printed and both are labelled,
+   * since the entry's numbering is what matches the structure a reader opens at the RCSB and
+   * the seed's is what matches every other panel here. `seed_start`/`seed_stop` are added by
+   * the pipeline, so an artefact built before that is simply missing them and says less
+   * rather than saying something wrong. */
+  function foldTip(kind, elem, t) {
+    var lines = [];
+    if (elem.seed_start != null) {
+      lines.push(kind + " " + resRange(elem.seed_start, elem.seed_stop) + " in seed coordinates");
+      // Reuse the shared body by handing it an element in the shape it expects.
+      var extra = elementTip({ kind: kind.toLowerCase(), start: elem.seed_start,
+                               end: elem.seed_stop, id: null,
+                               length: elem.seed_stop - elem.seed_start + 1 }, null);
+      extra.split("\n").slice(1).forEach(function (l) { lines.push(l); });
+    } else {
+      lines.push(kind + " " + elem.start + "–" + elem.stop);
+    }
+    lines.push("residues " + elem.start + "–" + elem.stop + " in " +
+               ((t && t.reference) || "the reference entry") +
+               ((t && t.chain) ? " chain " + t.chain : ""));
+    lines.push("drawn upright; the PDBe lays it out at an angle");
+    return lines.join("\n");
+  }
+
   function renderTopology() {
     var t = S.family.topology;
     var svg = $("topoDiagram");
@@ -2108,14 +2264,14 @@
                  " Q " + ((x1 + x2) / 2).toFixed(1) + " " + (axisY + lift).toFixed(1) +
                  " " + x2.toFixed(1) + " " + axisY + '" stroke-width="' +
                  Math.min(3.4, 0.8 + p.bridges * 0.14).toFixed(2) + '">' +
-                 "<title>" + esc(a.start + "–" + a.end) + " pairs with " +
-                 esc(b.start + "–" + b.end) + ", " + p.bridges + " bridges</title></path>");
+                 "<title>" + esc(resRange(a.start, a.end)) + " pairs with " +
+                 esc(resRange(b.start, b.end)) + ", " + p.bridges +
+                 " hydrogen bonds</title></path>");
     });
 
     t.elements.forEach(function (e) {
       var x1 = x(e.start), x2 = x(e.end), w = Math.max(3, x2 - x1);
-      var title = "<title>" + (e.kind === "helix" ? "Helix " : "Strand ") +
-        e.start + "–" + e.end + " (" + e.length + " residues)</title>";
+      var title = "<title>" + esc(elementTip(e, t)) + "</title>";
       if (e.kind === "helix") {
         // A cylinder: a rounded body, so it reads as a helix at a glance without the
         // coil-drawing that turns into noise at this width.
@@ -2364,6 +2520,35 @@
     parts.push('<line class="lgaxis" x1="0" y1="' + (H - PAD_B) + '" x2="' + W +
                '" y2="' + (H - PAD_B) + '"/>');
 
+    /* One invisible band per column, carrying what the glyphs cannot say.
+     *
+     * The letters are the picture; the numbers behind them are the evidence. Every residue
+     * the alignment recorded for the column is listed, including the ones whose glyph fell
+     * below the 0.7px cutoff above and was never drawn: a 4% substitution is invisible in a
+     * logo and is often the reason somebody is reading one. Depth comes too, because a
+     * column seen in nine sequences and a column seen in nine hundred look identical here.
+     *
+     * A band rather than a title on each glyph, since the letters a reader most wants to ask
+     * about are precisely the short ones, and a sub-pixel glyph is not a hover target.
+     * Appended last so it sits above them: an SVG has no z-index. */
+    usable.forEach(function (c, i) {
+      var bits = Math.max(0, c.conservation) * MAX_BITS;
+      // `c.seed` rather than the shared helper: this is the seed residue the alignment
+      // itself recorded for the column, so it cannot drift from what was aligned.
+      var dist = (c.top || []).map(function (t) {
+        return t.aa + " " + Math.round((t.f || 0) * 100) + "%";
+      }).join(", ");
+      var tip = (c.seed || "") + c.pos +
+        "\n" + bits.toFixed(2) + " of " + MAX_BITS.toFixed(2) + " bits · " +
+        Math.round(c.conservation * 100) + "% conserved" +
+        (dist ? "\n" + dist : "") +
+        (c.depth ? "\nacross " + commas(c.depth) + " weighted sequences" : "") +
+        (c.insertions ? "\n" + commas(c.insertions) +
+          " have an insertion after this position" : "");
+      parts.push('<rect class="lghit" x="' + (i * CW) + '" y="0" width="' + CW +
+                 '" height="' + (H - PAD_B) + '"><title>' + esc(tip) + "</title></rect>");
+    });
+
     svg.setAttribute("viewBox", "0 0 " + W + " " + H);
     svg.setAttribute("width", W);
     svg.setAttribute("height", H);
@@ -2435,8 +2620,7 @@
       parts.push('<line class="fdhelix" x1="' + hx.toFixed(1) + '" y1="' + (hy - hl).toFixed(1) +
                  '" x2="' + hx.toFixed(1) + '" y2="' + (hy + hl).toFixed(1) +
                  '" stroke-width="' + (h.minor || 10) + '" stroke-linecap="round">' +
-                 "<title>Helix " + h.start + "–" + h.stop +
-                 " (drawn upright; the PDBe lays it out at an angle)</title></line>");
+                 "<title>" + esc(foldTip("Helix", h, t)) + "</title></line>");
     });
 
     /* Strands drawn as upright arrows rather than at the angle the PDBe lays them out at.
@@ -2490,8 +2674,7 @@
     (d.strands || []).forEach(function (st) {
       if (!st.path || st.path.length < 6) return;
       parts.push('<polygon class="fdstrand" points="' + arrow(st.path) + '">' +
-                 "<title>Strand " + st.start + "–" + st.stop +
-                 " (drawn upright; the PDBe lays it out at an angle)</title></polygon>");
+                 "<title>" + esc(foldTip("Strand", st, t)) + "</title></polygon>");
     });
 
     (d.terms || []).forEach(function (tm) {
@@ -2534,11 +2717,13 @@
       '<span class="verdict poor"></span>' + commas(q.poor) + " flagged twice or more · " +
       commas(q.with_sf) + " with structure factors";
 
-    var rows = q.rows.map(function (r) {
+    var rows = q.rows.map(function (r, idx) {
       var n = function (v, dp) {
         return v == null ? "—" : Number(v).toFixed(dp === undefined ? 2 : dp);
       };
-      return "<tr>" +
+      // The row opens the drawer; the entry code inside it still goes to the RCSB, since a
+      // link that looks like a link and does something else is the worse surprise.
+      return '<tr class="drow" data-quality="' + idx + '">' +
         '<td class="n"><span class="verdict ' + r.verdict + '"></span>' +
           '<a href="https://www.rcsb.org/structure/' + esc(r.pdb_id) +
           '" target="_blank" rel="noopener noreferrer">' + esc(r.pdb_id) + "</a></td>" +
@@ -2564,6 +2749,94 @@
       (q.median_clashscore == null ? "—" : q.median_clashscore) + ", RSRZ " +
       (q.median_rsrz == null ? "—" : q.median_rsrz) + "&nbsp;%, R gap " +
       (q.median_r_gap == null ? "—" : q.median_r_gap) + ".</p>";
+
+  }
+
+  /* One entry's validation record, with every threshold it was judged against.
+   *
+   * The table can only say a number is 23.4; the question a reader actually has is whether
+   * 23.4 is bad, how bad, and bad compared to what. So each metric is shown against the
+   * wwPDB's own threshold AND against this family's median, because "worse than the
+   * threshold" and "worse than its neighbours" are different findings and a structure can
+   * be either without being the other. */
+  var QUALITY_METRICS = [
+    { key: "resolution", label: "Resolution", unit: " Å", dp: 2, lower: true,
+      note: "how much data there was to build into" },
+    { key: "clashscore", label: "Clashscore", unit: "", dp: 1, limit: 20, lower: true,
+      median: "median_clashscore",
+      note: "serious atomic overlaps per 1,000 atoms" },
+    { key: "rsrz", label: "RSRZ outliers", unit: "%", dp: 1, limit: 5, lower: true,
+      median: "median_rsrz",
+      note: "residues that fit their own density poorly" },
+    { key: "rama", label: "Ramachandran outliers", unit: "%", dp: 1, limit: 0.5, lower: true,
+      note: "backbone conformations that should not occur" },
+    { key: "rota", label: "Rotamer outliers", unit: "%", dp: 1, limit: 5, lower: true,
+      note: "side chains in unusual conformations" },
+    { key: "r_gap", label: "R-free minus R-work", unit: "", dp: 3, limit: 0.07, lower: true,
+      median: "median_r_gap",
+      note: "a large gap suggests the model is fitted to noise" },
+    { key: "completeness", label: "Data completeness", unit: "%", dp: 1, lower: false,
+      note: "how much of the reciprocal space was measured" }
+  ];
+
+  function openQualityDetail(idx) {
+    var q = S.family.quality || {};
+    var r = (q.rows || [])[idx];
+    if (!r) return;
+    var rows = QUALITY_METRICS.map(function (m) {
+      var v = r[m.key];
+      if (v == null) {
+        return "<tr><td>" + esc(m.label) + '</td><td class="n">—</td>' +
+               '<td class="n">—</td><td class="n">—</td><td>not reported</td></tr>';
+      }
+      var over = m.limit != null && (m.lower ? v > m.limit : v < m.limit);
+      var med = m.median ? q[m.median] : null;
+      return "<tr><td>" + esc(m.label) + "</td>" +
+        '<td class="n"><b class="' + (over ? "bad" : "") + '">' +
+          Number(v).toFixed(m.dp) + esc(m.unit) + "</b></td>" +
+        '<td class="n">' + (m.limit != null ? (m.lower ? "≤ " : "≥ ") + m.limit : "—") + "</td>" +
+        '<td class="n">' + (med == null ? "—" : Number(med).toFixed(m.dp)) + "</td>" +
+        "<td>" + esc(m.note) + "</td></tr>";
+    }).join("");
+
+    var VERDICT = {
+      ok: "Nothing here crosses a wwPDB threshold.",
+      check: "One measure crosses a threshold: worth a look before relying on it.",
+      poor: "Two or more measures cross a threshold."
+    };
+
+    var body = dl([
+      ["Entry", r.pdb_id],
+      ["Verdict", VERDICT[r.verdict] || r.verdict],
+      ["Flagged", (r.flags || []).length ? r.flags.join(", ") : "nothing"],
+      ["Structure factors", r.has_sf
+        ? "deposited, so the model can be re-refined against the data"
+        : "not deposited, so nothing here can be independently rechecked"],
+    ]) +
+    '<div class="dsect"><h4>Against the thresholds</h4>' +
+    '<table class="ctable"><thead><tr><th>Measure</th><th>This entry</th>' +
+    "<th>Threshold</th><th>Family median</th><th>What it means</th>" +
+    "</tr></thead><tbody>" + rows + "</tbody></table>" +
+    '<p class="caveat">Thresholds are the wwPDB validation report&rsquo;s own, not ours. ' +
+    "A value past one is a flag to investigate rather than a verdict: a 3.4&nbsp;Å structure " +
+    "with a high clashscore is behaving as a 3.4&nbsp;Å structure does.</p></div>" +
+    '<div class="dsect"><h4>Go and look</h4><p>' +
+    '<a class="dchip" target="_blank" rel="noopener noreferrer" href="https://www.rcsb.org/structure/' +
+      esc(r.pdb_id) + '">RCSB entry</a> ' +
+    '<a class="dchip" target="_blank" rel="noopener noreferrer" ' +
+      'href="https://www.rcsb.org/validation/' + esc(r.pdb_id) + '">Validation report</a> ' +
+    '<a class="dchip" target="_blank" rel="noopener noreferrer" ' +
+      'href="https://pdbe.org/' + esc(r.pdb_id.toLowerCase()) + '">PDBe</a> ' +
+    '<a class="dchip" target="_blank" rel="noopener noreferrer" ' +
+      'href="https://pdbj.org/mine/summary/' + esc(r.pdb_id.toLowerCase()) + '">PDBj</a>' +
+    (r.has_sf
+      ? ' <a class="dchip" target="_blank" rel="noopener noreferrer" ' +
+        'href="https://files.rcsb.org/download/' + esc(r.pdb_id.toUpperCase()) +
+        '-sf.cif">Structure factors</a>'
+      : "") +
+    "</p></div>";
+
+    openDetail(r.pdb_id, "validation", body);
   }
 
   /* Clicking a hot residue focuses it in the viewer, which is the half of "mapped back onto
@@ -2589,6 +2862,9 @@
     if (pick) pick.value = best.pdb_id;
     window.CodswallopViewer.show($("structureHost"), best.pdb_id).then(function (v) {
       currentViewer = v;
+      // A fresh viewer carries no AlphaFold model, whatever the button said about the
+      // one it replaced.
+      setAlphaFoldLabel(false);
       $("structureHost").dataset.loaded = "1";
       setTimeout(go, 400);
     });
@@ -2614,7 +2890,7 @@
     var sp = $("btnSuperpose");
     if (sp) sp.addEventListener("click", superposeFamily);
     var af = $("btnAlphaFold");
-    if (af) af.addEventListener("click", addAlphaFold);
+    if (af) af.addEventListener("click", toggleAlphaFold);
     var cons = $("btnConservation");
     if (cons) cons.addEventListener("click", colourByConservation);
   }
@@ -2950,6 +3226,9 @@
     currentPdbId = pdbId;
     window.CodswallopViewer.show($("structureHost"), pdbId).then(function (v) {
       currentViewer = v;
+      // A fresh viewer carries no AlphaFold model, whatever the button said about the
+      // one it replaced.
+      setAlphaFoldLabel(false);
       $("superposeNote").textContent = "";
     });
   }
@@ -3049,6 +3328,9 @@
       (m.reference || reps[0].pdb_id) + "…";
     window.CodswallopViewer.superpose($("structureHost"), entries).then(function (v) {
       currentViewer = v;
+      // A fresh viewer carries no AlphaFold model, whatever the button said about the
+      // one it replaced.
+      setAlphaFoldLabel(false);
       $("superposeNote").textContent = reps.length + " structures on " +
         (m.reference || reps[0].pdb_id) + " (" +
         reps.map(function (r) { return r.pdb_id; }).join(" ") + ")";
@@ -3060,6 +3342,28 @@
     var hex = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
     var m = /^#?([0-9a-f]{6})$/i.exec(hex);
     return m ? parseInt(m[1], 16) : 0x5b8cff;
+  }
+
+  /** The AlphaFold button's label, kept in step with what is actually on screen. */
+  function setAlphaFoldLabel(shown) {
+    var btn = $("btnAlphaFold");
+    if (btn) btn.textContent = shown ? "Hide the AlphaFold model" : "Add the AlphaFold model";
+  }
+
+  /* Add the model, or take it off again if it is already there.
+   *
+   * One button rather than two, because the reader is toggling one thing, and a control
+   * reading "Add" beside a model that is already added lies about the state it is in:
+   * pressing it again fetched and placed a second copy on top of the first. */
+  function toggleAlphaFold() {
+    if (currentViewer && currentViewer._afRef) {
+      window.CodswallopViewer.removeAlphaFold(currentViewer).then(function (removed) {
+        setAlphaFoldLabel(!removed);
+        if (removed) $("superposeNote").textContent = "AlphaFold model removed.";
+      });
+      return;
+    }
+    addAlphaFold();
   }
 
   function addAlphaFold() {
@@ -3085,6 +3389,7 @@
     }
     $("superposeNote").textContent = "Fetching the AlphaFold model for " + acc + "…";
     window.CodswallopViewer.addAlphaFold(currentViewer, acc, af).then(function () {
+      setAlphaFoldLabel(true);
       // Which fit was actually used, reported rather than assumed. The pipeline's TM-align
       // transform is the better one; the browser fit is what a family with no artefact
       // gets, and saying which is which is the difference between a measurement and a
@@ -3307,10 +3612,64 @@
     ]));
   }
 
+  /* The primary citations behind one group's depositions.
+   *
+   * Derived here rather than shipped: every member already carries a `cite_id` into the
+   * family's citation table, and the group is defined as "last author of the primary
+   * citation", so the papers are recoverable by the same rule that built the group in the
+   * first place. Adding them to the server-side artefact instead would have meant a parse
+   * version bump and a rebuild of every family for a field that costs nothing to recompute.
+   *
+   * Counted per entry, and the entries are listed, because one paper covering fourteen
+   * depositions is the normal case in this archive and is the thing the Papers column in the
+   * table cannot show. */
+  function groupCitations(pi) {
+    var cits = S.family.citations || {};
+    var byPaper = {};
+    S.members.forEach(function (m) {
+      if (!m.cite_id) return;
+      var c = cits[m.cite_id];
+      if (!c || !c.authors || !c.authors.length) return;
+      if (c.authors[c.authors.length - 1] !== pi) return;
+      var e = byPaper[m.cite_id];
+      if (!e) e = byPaper[m.cite_id] = { c: c, entries: [] };
+      if (e.entries.indexOf(m.pdb_id) < 0) e.entries.push(m.pdb_id);
+    });
+    return Object.keys(byPaper).map(function (k) { return byPaper[k]; })
+      .sort(function (a, b) {
+        return (b.c.year || 0) - (a.c.year || 0) || b.entries.length - a.entries.length;
+      });
+  }
+
+  function citationHtml(papers) {
+    if (!papers.length) {
+      return '<p class="caveat">No primary citation could be matched to this group in the ' +
+             "entries currently shown. Narrowing the family with the filters above also " +
+             "narrows this.</p>";
+    }
+    return papers.map(function (p) {
+      var c = p.c;
+      var where = [c.journal ? "<i>" + esc(c.journal) + "</i>" : "", esc(c.volume || ""),
+                   esc(c.pages || "")].filter(Boolean).join(" ");
+      return '<div class="citerow"><p class="citetitle">' + esc(c.title || "untitled") + "</p>" +
+        '<p class="citemeta">' + esc((c.authors || []).join(", ")) + "</p>" +
+        '<p class="citemeta">' + where + (c.year ? " (" + esc(c.year) + ")" : "") + " · " +
+        p.entries.length + (p.entries.length === 1 ? " entry" : " entries") + ": " +
+        p.entries.slice(0, 12).map(function (id) {
+          return '<a href="https://www.rcsb.org/structure/' + esc(id) +
+                 '" target="_blank" rel="noopener noreferrer">' + esc(id) + "</a>";
+        }).join(" ") + (p.entries.length > 12 ? " …" : "") +
+        (c.doi ? ' · <a href="https://doi.org/' + esc(c.doi) +
+                 '" target="_blank" rel="noopener noreferrer">doi</a>' : "") +
+        "</p></div>";
+    }).join("");
+  }
+
   function openGroupDetail(idx) {
     var p = ((S.family.provenance || {}).people || {});
     var r = (p.rows || [])[idx];
     if (!r) return;
+    var papers = groupCitations(r.pi);
     openDetail(r.pi, "depositing group, by last author", dl([
       ["Entries deposited", commas(r.entries) + " of " + commas(p.n_entries) +
         " in this family (" + (100 * r.entries / p.n_entries).toFixed(1) + "%)"],
@@ -3322,7 +3681,13 @@
       ["How this is derived", "The last author of each entry's primary citation, which is " +
         "a convention of the field rather than something the archive records. Counted per " +
         "entry, not per paper: one paper routinely covers a series of depositions."],
-    ]));
+    ]) +
+    '<div class="dsect"><h4>Primary citations</h4>' + citationHtml(papers) +
+    (papers.length
+      ? '<p class="caveat">The paper the depositors themselves nominated for each entry, ' +
+        "which is not always where the structure is discussed at length. Listed newest " +
+        "first, with the entries each one covers.</p>"
+      : "") + "</div>");
   }
 
   function openAssemblyDetail(idx) {
@@ -3366,6 +3731,7 @@
       if (row.dataset.provcoll) return openCollisionDetail(Number(row.dataset.provcoll));
       if (row.dataset.provgroup) return openGroupDetail(Number(row.dataset.provgroup));
       if (row.dataset.asmstate) return openAssemblyDetail(Number(row.dataset.asmstate));
+      if (row.dataset.quality) return openQualityDetail(Number(row.dataset.quality));
     });
     ["dgAll", "dgTarget", "dgApproved"].forEach(function (id) {
       var b = $(id);

@@ -128,6 +128,19 @@
     this.draw();
   };
 
+  /* Where a cluster label's text will land, near enough to test for collisions.
+     Shared by the first draw and by every rotation, so a label that is hidden while turning
+     is hidden by exactly the rule that placed it. */
+  function labelBox(text, x, y, anchor, minor) {
+    var wpx = text.length * (minor ? 4.7 : 5.6);
+    var left = anchor === "start" ? x : (anchor === "end" ? x - wpx : x - wpx / 2);
+    return { l: left, r: left + wpx, t: y - (minor ? 7.5 : 9), b: y + 3 };
+  }
+
+  function overlaps(a, b) {
+    return !(a.r < b.l || a.l > b.r || a.b < b.t || a.t > b.b);
+  }
+
   /** How solid a node looks at depth `z`, in the -1..1 range the coordinates span. */
   function depthOpacity(z) {
     var t = Math.max(-1, Math.min(1, z));
@@ -166,6 +179,33 @@
     return { x: f.cx + dx, y: f.cy + dy, z: p.z };
   };
 
+  /** Re-project on the next frame, coalescing however many calls arrive before it.
+   *
+   * A rotation asks to be redrawn far more often than a screen can show it, from a pointer
+   * that fires faster than 60 Hz and from buttons that can be held down. */
+  Constellation.prototype.paint = function () {
+    var self = this;
+    if (self._raf) return;
+    self._raf = requestAnimationFrame(function () {
+      self._raf = null;
+      self.reproject();
+    });
+  };
+
+  /** Turn the map by `dyaw`/`dpitch` radians, or back to face on. Used by the buttons and
+   *  the arrow keys, so both land on exactly the same state a drag would reach. */
+  Constellation.prototype.turn = function (dyaw, dpitch) {
+    this.yaw = (this.yaw || 0) + dyaw;
+    this.pitch = Math.max(-1.2, Math.min(1.2, (this.pitch || 0) + dpitch));
+    this.paint();
+  };
+
+  Constellation.prototype.faceOn = function () {
+    this.yaw = 0;
+    this.pitch = 0;
+    this.paint();
+  };
+
   /** Move every node to its current projection. No DOM is created or destroyed. */
   Constellation.prototype.reproject = function () {
     var self = this;
@@ -189,11 +229,26 @@
           + ") translate(" + (item.r + 3.2).toFixed(1) + ",0)");
       }
     });
-    // The cluster names ride along, or they name whatever has rotated under them.
+    // The cluster names ride along, or they name whatever has rotated under them. And they
+    // are re-tested for collisions as they go: they were laid out clear of each other in one
+    // orientation, and a rotation moves them independently of that arrangement, so two names
+    // that started apart can be printed on top of each other halfway round. Biggest first,
+    // so a small group's label is the one that yields.
+    var lplaced = [];
+    var box = this._frame;
     (this._labels || []).forEach(function (lab) {
       var p = self.place(project, lab.c);
-      lab.el.setAttribute("x", p.x.toFixed(2));
-      lab.el.setAttribute("y", p.y.toFixed(2));
+      var anchor = p.x < box.w * 0.32 ? "start" : (p.x > box.w * 0.68 ? "end" : "middle");
+      var tx = Math.max(8, Math.min(box.w - 8, p.x));
+      var ty = Math.max(14, Math.min(box.h - box.noteH - 4, p.y));
+      var b = labelBox(lab.text || "", tx, ty, anchor, lab.c.minor);
+      var clash = lplaced.some(function (q) { return overlaps(b, q); });
+      lab.el.style.display = clash ? "none" : "";
+      if (clash) return;
+      lplaced.push(b);
+      lab.el.setAttribute("x", tx.toFixed(2));
+      lab.el.setAttribute("y", ty.toFixed(2));
+      lab.el.setAttribute("text-anchor", anchor);
     });
     // The edges are between representatives and have to follow the same rotation, or they
     // detach from the nodes they connect.
@@ -319,7 +374,10 @@
     // projector without redrawing. The trig has to be recomputed per rotation rather than
     // captured here: closing over it once meant every later projection used the angles from
     // the last full draw, so dragging updated `yaw` and moved nothing.
-    self._frame = { cx: cx, cy: cy, scale: scale, limX: availW, limY: availH };
+    // w/h/noteH ride along because the label pass in `reproject` re-derives anchors and
+    // clamps from the panel box, and it has no access to these locals.
+    self._frame = { cx: cx, cy: cy, scale: scale, limX: availW, limY: availH,
+                    w: w, h: h, noteH: NOTE_H };
     var project = self.projector();
     var X = function (x) { return cx + x * scale; };
     var Y = function (y) { return cy + y * scale; };
@@ -368,21 +426,20 @@
 
       // Approximate the label box from its character count: measuring for real would mean
       // laying every label out and reading it back, and this only has to be good enough to
-      // spot an overlap.
+      // spot an overlap. The minor labels are set smaller, so they measure smaller too.
       var text = c.name + " · " + c.count;
-      var wpx = text.length * 5.6;
-      var left = anchor === "start" ? tx : (anchor === "end" ? tx - wpx : tx - wpx / 2);
-      var box = { l: left, r: left + wpx, t: ty - 9, b: ty + 3 };
-      var clash = placed.some(function (p) {
-        return !(box.r < p.l || box.l > p.r || box.b < p.t || box.t > p.b);
-      });
+      var box = labelBox(text, tx, ty, anchor, c.minor);
+      var clash = placed.some(function (p) { return overlaps(box, p); });
       if (clash) return;
       placed.push(box);
 
-      var t = el("text", { "class": "clusterlabel", x: tx, y: ty, "text-anchor": anchor });
+      var t = el("text", {
+        "class": "clusterlabel" + (c.minor ? " minor" : ""),
+        x: tx, y: ty, "text-anchor": anchor
+      });
       t.textContent = text;
       gLabels.appendChild(t);
-      self._labels.push({ el: t, c: c });
+      self._labels.push({ el: t, c: c, text: text });
     });
     svg.appendChild(gLabels);
 
@@ -567,6 +624,46 @@
     // Only when the family has a third axis. Pointer events rather than mouse, so a finger
     // works; and a drag that never moves more than a few pixels is left to fall through as
     // a click, or picking a node would become impossible.
+    // ---- rotation controls -------------------------------------------------------------
+    // Shown only with a third axis, for the same reason the drag is only wired up then.
+    // A step of 15 degrees: small enough to creep round a crowded region, large enough
+    // that holding the button is not the only way to get anywhere.
+    var rotCtl = document.getElementById("rotCtl");
+    if (rotCtl) {
+      rotCtl.hidden = !self.map.three_d;
+      if (self.map.three_d && !rotCtl._wired) {
+        rotCtl._wired = true;
+        var STEP = Math.PI / 12;
+        rotCtl.addEventListener("click", function (ev) {
+          var btn = ev.target.closest("[data-rot]");
+          if (!btn) return;
+          var spec = btn.getAttribute("data-rot");
+          if (spec === "reset") { self.faceOn(); return; }
+          var parts = spec.split(":"), sign = parseFloat(parts[1]);
+          self.turn(parts[0] === "yaw" ? sign * STEP : 0,
+                    parts[0] === "pitch" ? sign * STEP : 0);
+        });
+      }
+    }
+    // Arrow keys, once the map has focus. The same steps as the buttons, so a reader who
+    // reaches the map by keyboard is not left with a control they can see and cannot work.
+    if (self.map.three_d && !svg._keys) {
+      svg._keys = true;
+      svg.setAttribute("tabindex", "0");
+      svg.addEventListener("keydown", function (ev) {
+        var STEP = Math.PI / 12;
+        // Same sense as dragging that way, so the keys and the mouse agree: dragging up
+        // tips the near face up, and so does ArrowUp.
+        var moves = { ArrowLeft: [-STEP, 0], ArrowRight: [STEP, 0],
+                      ArrowUp: [0, STEP], ArrowDown: [0, -STEP] };
+        if (ev.key === "Home" || ev.key === "0") { self.faceOn(); ev.preventDefault(); return; }
+        var m = moves[ev.key];
+        if (!m) return;
+        self.turn(m[0], m[1]);
+        ev.preventDefault();       // or the panel scrolls under the map as it turns
+      });
+    }
+
     if (self.map.three_d) {
       var drag = null;
       svg.style.cursor = "grab";
@@ -597,15 +694,20 @@
           drag.captured = true;
           try { svg.setPointerCapture(ev.pointerId); } catch (e) { /* carry on uncaptured */ }
         }
-        self.yaw = drag.yaw + dx * 0.008;
+        // Sensitivity from the panel's own size, not a fixed radians-per-pixel. At the old
+        // 0.008 a drag across a 900px panel was 7.2 radians, well over a full turn, so the
+        // field spun away from under the cursor and no drag could be undone by dragging
+        // back the same distance. Half a turn per panel width is a rate you can aim with.
+        var box = svg.getBoundingClientRect();
+        self.yaw = drag.yaw + dx * (Math.PI / Math.max(box.width, 1));
+        // MINUS dy, not plus. Screen y grows downward while this pitch tips the near face
+        // up, so adding them made a downward drag push the front of the field away from
+        // you: the horizontal axis followed the mouse and the vertical one opposed it,
+        // which is exactly the "sometimes backwards" of a rotation that is half inverted.
         // Clamped, so the map cannot be turned upside down and lose its own axis labels.
-        self.pitch = Math.max(-1.2, Math.min(1.2, drag.pitch + dy * 0.008));
-        if (!self._raf) {
-          self._raf = requestAnimationFrame(function () {
-            self._raf = null;
-            self.reproject();
-          });
-        }
+        self.pitch = Math.max(-1.2, Math.min(1.2,
+          drag.pitch - dy * (Math.PI / Math.max(box.height, 1))));
+        self.paint();
       };
       var endDrag = function (ev) {
         if (!drag) return;

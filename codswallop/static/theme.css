@@ -438,6 +438,30 @@ button { font: inherit; color: inherit; cursor: pointer; }
   position: absolute; left: 12px; bottom: 10px; right: 12px;
   font-size: 10.5px; color: var(--mute); line-height: 1.5; pointer-events: none;
 }
+
+/* Rotation controls, top right of the field. A dpad rather than a row, because up and down
+   mean something different from left and right here and a row of four arrows makes the
+   reader work out which is which every time. Quiet until hovered: the map is the subject. */
+.rotctl {
+  position: absolute; top: 10px; right: 10px;
+  display: flex; align-items: center; gap: 2px;
+  opacity: 0.42; transition: opacity 0.15s;
+}
+.field:hover .rotctl, .rotctl:focus-within { opacity: 1; }
+.rotcol { display: flex; flex-direction: column; gap: 2px; }
+.rotctl .rot {
+  width: 22px; height: 22px; padding: 0; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9px; color: var(--ink);
+  background: var(--paper); border: 1px solid var(--line); border-radius: 4px;
+  cursor: pointer; user-select: none;
+}
+.rotctl .rot:hover { background: var(--sky); border-color: var(--ink); }
+.rotctl .rot:active { transform: translateY(0.5px); }
+.rotctl .rot:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* The reset is the odd one out and is marked as such, or it reads as a third arrow. */
+.rotctl .rot[data-rot="reset"] { font-size: 12px; color: var(--mute); }
+@media (max-width: 780px) { .rotctl { display: none; } }   /* a finger drags instead */
 /* On a phone the note comes out of the overlay and sits under the map instead.
    Absolutely positioned it grew upward from the bottom edge, and on a 380px field it
    covered the entire constellation: the reader lost the map to the caption explaining it.
@@ -498,6 +522,13 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .clusterlabel {
   font-family: var(--sans); font-size: 10px; fill: var(--mute);
   text-transform: uppercase; letter-spacing: .1em;
+}
+/* Everything past the largest few groups. The field now offers a dozen names where it used
+   to offer six, and a dozen at one weight is a wall of text rather than a legend: set these
+   smaller and fainter so the eye reads the big clusters first and finds the rest when it
+   looks for them. */
+.clusterlabel.minor {
+  font-size: 8.5px; letter-spacing: .06em; fill-opacity: 0.62;
 }
 
 /* The cross-highlight pulse: the single element this interface is remembered by. */
@@ -1043,6 +1074,26 @@ footer.site .sources { margin-top: 7px; }
 }
 .dsect h4 .n { text-transform: none; letter-spacing: 0; color: var(--mute); }
 .dsect p { margin: 0 0 6px; font-size: 12.5px; }
+
+/* A primary citation in the depositing-group drawer. One block per paper, with the entries
+   it covers: a group's twelve entries are routinely three papers, and the count alone does
+   not say which structures went with which. */
+.citerow { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.citerow:last-child { border-bottom: 0; }
+.citetitle { margin: 0 0 3px; font-size: 12.5px; color: var(--ink); line-height: 1.45; }
+.citemeta { margin: 0 0 2px; font-size: 11.5px; color: var(--mute); line-height: 1.5; }
+.citemeta a { color: var(--accent); text-decoration: none; }
+.citemeta a:hover { text-decoration: underline; }
+
+/* A measurement past its own threshold, in the validation drawer. */
+.ctable b.bad { color: var(--oxide); }
+
+/* The size key in the crystallisation legend: a circle, because that is what it explains,
+   where the other keys are colour swatches. */
+.covlegend i.sizekey {
+  border-radius: 50%; background: var(--cyan); width: 11px; height: 11px;
+  opacity: 0.6; border: 1px solid var(--cyan);
+}
 .dchip {
   display: inline-block; font-size: 11px; padding: 2px 7px; margin: 0 2px 4px 0;
   border: 1px solid var(--line); border-radius: 4px; color: var(--dim);
@@ -1115,6 +1166,11 @@ a.dchip:hover { border-color: var(--accent); color: var(--text); text-decoration
   font-family: var(--mono); font-size: 13px; font-weight: 700;
   text-anchor: middle; dominant-baseline: alphabetic;
 }
+/* The per-column hover band. Transparent rather than `fill: none`, which takes no pointer
+   events at all and would make the whole tooltip unreachable. A faint tint on hover, so it
+   is visible which column the numbers belong to. */
+#seqLogo .lghit { fill: transparent; cursor: help; }
+#seqLogo .lghit:hover { fill: var(--accent); fill-opacity: 0.08; }
 #seqLogo .lgaxis { stroke: var(--line); stroke-width: 1; }
 #seqLogo .lgtick { stroke: var(--line); stroke-width: 1; }
 #seqLogo .lglabel {

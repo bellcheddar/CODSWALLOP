@@ -111,6 +111,24 @@
           <div class="field" id="field">
             <svg id="constellation" role="img"
                  aria-label="Similarity map of every structure in the family"></svg>
+            {# Rotation without a mouse drag. Hidden until the map turns out to have a third
+               axis, since a 2D placeholder has nothing to turn. Buttons as well as the drag
+               because a drag is a guess about how far you moved, and "face on" is a view
+               worth being able to return to exactly. #}
+            <div class="rotctl" id="rotCtl" hidden>
+              <button type="button" class="rot" data-rot="yaw:-1" title="Rotate left"
+                      aria-label="Rotate left">&#9668;</button>
+              <span class="rotcol">
+                <button type="button" class="rot" data-rot="pitch:1" title="Tip up"
+                        aria-label="Tip up">&#9650;</button>
+                <button type="button" class="rot" data-rot="reset" title="Face on"
+                        aria-label="Reset the rotation">&#8635;</button>
+                <button type="button" class="rot" data-rot="pitch:-1" title="Tip down"
+                        aria-label="Tip down">&#9660;</button>
+              </span>
+              <button type="button" class="rot" data-rot="yaw:1" title="Rotate right"
+                      aria-label="Rotate right">&#9658;</button>
+            </div>
             <p class="fieldnote" id="fieldNote"></p>
           </div>
 
@@ -136,18 +154,6 @@
         </div>
       </div>
 
-      {# ---- coverage census --------------------------------------------------------- #}
-      <div class="panel">
-        <div class="panel-head">
-          <h2>Construct coverage</h2>
-          <span class="sub">How many of the family's constructs contain each residue of the seed</span>
-        </div>
-        <div class="covwrap">
-          <svg class="covbar" id="coverage" role="img"
-               aria-label="Per-residue construct coverage across the family"></svg>
-          <div class="covlegend" id="covLegend"></div>
-        </div>
-      </div>
     </section>
 
     {# ============================== SEQUENCES (phase 2) =========================== #}
@@ -214,6 +220,18 @@
 
     {# ============================== CONSTRUCTS (phase 2) ========================== #}
     <section id="sec-constructs" class="section" role="tabpanel" hidden>
+      {# ---- coverage census --------------------------------------------------------- #}
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Construct coverage</h2>
+          <span class="sub">How many of the family's constructs contain each residue of the seed</span>
+        </div>
+        <div class="covwrap">
+          <svg class="covbar" id="coverage" role="img"
+               aria-label="Per-residue construct coverage across the family"></svg>
+          <div class="covlegend" id="covLegend"></div>
+        </div>
+      </div>
       <div class="panel">
         <div class="panel-head">
           <h2>What people actually made</h2>
@@ -379,6 +397,31 @@
           <div id="asmAmbiguous"></div>
         </div>
       </div>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Fold topology</h2>
+          <span class="sub" id="topoSub"></span>
+        </div>
+        <div class="panel-body">
+          <div id="topoIntro"></div>
+          <div class="topowrap"><svg id="topoDiagram" role="img"
+               aria-label="Secondary structure elements and sheet pairing"></svg></div>
+          <div id="topoLegend"></div>
+        </div>
+      </div>
+
+      {# ---- the 2D fold diagram proper ---------------------------------------------- #}
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Fold diagram</h2>
+          <span class="sub" id="foldSub"></span>
+        </div>
+        <div class="panel-body">
+          <div id="foldIntro"></div>
+          <div class="foldwrap"><svg id="foldDiagram" role="img"
+               aria-label="Two-dimensional fold diagram"></svg></div>
+        </div>
+      </div>
     </section>
 
     {# ---- provenance: what it is called, and who did the work ----------------------- #}
@@ -437,35 +480,6 @@
         <div class="panel-body">
           <div id="drugIntro"></div>
           <div id="drugClasses"></div>
-        </div>
-      </div>
-    </section>
-
-    {# ---- topology ----------------------------------------------------------------- #}
-    <section id="sec-topology" class="section" role="tabpanel" hidden>
-      <div class="panel">
-        <div class="panel-head">
-          <h2>Fold topology</h2>
-          <span class="sub" id="topoSub"></span>
-        </div>
-        <div class="panel-body">
-          <div id="topoIntro"></div>
-          <div class="topowrap"><svg id="topoDiagram" role="img"
-               aria-label="Secondary structure elements and sheet pairing"></svg></div>
-          <div id="topoLegend"></div>
-        </div>
-      </div>
-
-      {# ---- the 2D fold diagram proper ---------------------------------------------- #}
-      <div class="panel">
-        <div class="panel-head">
-          <h2>Fold diagram</h2>
-          <span class="sub" id="foldSub"></span>
-        </div>
-        <div class="panel-body">
-          <div id="foldIntro"></div>
-          <div class="foldwrap"><svg id="foldDiagram" role="img"
-               aria-label="Two-dimensional fold diagram"></svg></div>
         </div>
       </div>
     </section>

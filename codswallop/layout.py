@@ -49,10 +49,19 @@ FAN_MIN = 0.02
 # labels on the map name the same groups the Structures heatmap shows and the cluster filter
 # selects. Two clusterings of one matrix that disagree would be worse than none.
 CLUSTER_CUT = 0.18
-# Clusters below this share of the family are left unlabelled: the field has room for a
-# handful of names, and a singleton's label costs more legibility than it buys.
-LABEL_MIN_SHARE = 0.02
-MAX_LABELS = 6
+# Clusters below this share of the family are left unlabelled: a singleton's label costs
+# more legibility than it buys, however much room is going spare.
+LABEL_MIN_SHARE = 0.008
+# How many names the field will carry. The renderer drops any label that would land on one
+# already placed, biggest first, so this is a ceiling on the candidates rather than a promise
+# of that many on screen: raising it lets a crowded map name its smaller groups where there
+# happens to be room, and changes nothing on a map that is already full. The labels past the
+# first few are drawn smaller (`rank` below), which is what keeps a dozen names from reading
+# as clutter.
+MAX_LABELS = 14
+# Ranks below this are drawn at full size, the rest quieter. Three is about how many groups a
+# reader takes in at a glance, and the rest are there to be found rather than announced.
+PRIMARY_LABELS = 3
 
 
 def _short_organism(name: Optional[str]) -> str:
@@ -547,6 +556,13 @@ def _from_embedding(members: list[dict], embedding: dict,
             clusters.append(entry)
         clusters.sort(key=lambda c: -c["count"])
         clusters = clusters[:MAX_LABELS]
+        # Rank, so the renderer can draw the big groups loudly and the rest quietly. Assigned
+        # here rather than derived from array order in the browser, because the renderer
+        # re-sorts and drops labels as they collide and would otherwise promote whichever
+        # small cluster happened to survive.
+        for rank, c in enumerate(clusters):
+            c["rank"] = rank
+            c["minor"] = rank >= PRIMARY_LABELS
 
     # Edges between representatives above the conventional same-fold threshold. This is what
     # the plan asked for all along: "edges between entries above the identity threshold",

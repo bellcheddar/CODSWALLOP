@@ -335,6 +335,45 @@ def pdbe_diagram(pdb_id: str, chain: Optional[str]) -> Optional[dict]:
     return None if got.get("none") else got
 
 
+def _nearest_mapped(mapping: dict, res: Optional[int], step: int) -> Optional[int]:
+    """The seed position for `res`, or for the nearest residue inward that has one.
+
+    An element can begin or end on a residue the alignment did not place: a terminus past
+    the last observed residue, or a gap. Walking a few residues inward finds the edge of the
+    element that was aligned, which is a better answer than dropping the label.
+    """
+    if res is None:
+        return None
+    for k in range(12):
+        got = mapping.get(res + k * step)
+        if got is not None:
+            return got
+    return None
+
+
+def _diagram_in_seed_coords(diagram: Optional[dict], mapping: dict) -> Optional[dict]:
+    """Add seed positions to the PDBe layout's elements.
+
+    The PDBe reports its topology in the deposited entry's own residue numbering, which is
+    not the seed's: on 1IOT the first strand is 42-46 there and 61-63 in seed coordinates,
+    and on acetylcholinesterase every element is out by 31. The two numbers were being drawn
+    on panels sitting one above the other, both labelled as residues, so a reader comparing
+    the fold diagram against the topology track, the motif table or the conservation plot was
+    comparing two different numbering systems that look alike.
+
+    Both are kept. `start`/`stop` stay exactly as the PDBe gave them, because that is what
+    matches the reference entry a reader will open at the RCSB, and `seed_start`/`seed_stop`
+    are added alongside for the panels that speak seed coordinates.
+    """
+    if not diagram or not mapping:
+        return diagram
+    for key in ("strands", "helices"):
+        for elem in diagram.get(key) or []:
+            elem["seed_start"] = _nearest_mapped(mapping, elem.get("start"), 1)
+            elem["seed_stop"] = _nearest_mapped(mapping, elem.get("stop"), -1)
+    return diagram
+
+
 def build(fam: dict) -> Optional[dict]:
     """The topology artefact for one family, computed from its reference structure."""
     slug = fam["slug"]
@@ -386,7 +425,9 @@ def build(fam: dict) -> Optional[dict]:
         "reference": pdb_id,
         # The 2D fold layout, from the PDBe. Absent is a real answer: not every entry has
         # one, and drawing something else in its place would be worse than saying so.
-        "diagram": pdbe_diagram(pdb_id, chain),
+        # Carried through the seed mapping first, so its elements can be labelled in the
+        # same coordinates as everything else on the page.
+        "diagram": _diagram_in_seed_coords(pdbe_diagram(pdb_id, chain), mapping),
         "chain": chain,
         "method": method,
         "seed_length": len(seed),

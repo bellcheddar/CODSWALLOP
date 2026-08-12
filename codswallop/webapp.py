@@ -44,7 +44,9 @@ SECTIONS = [
     {"id": "provenance", "label": "Provenance", "phase": 4, "live": True},
     {"id": "motifs", "label": "Motifs", "phase": 4, "live": True},
     {"id": "drugs", "label": "Drugs", "phase": 4, "live": True},
-    {"id": "topology", "label": "Topology", "phase": 4, "live": True},
+    # Topology is not a section of its own. Its two panels moved under Assembly, where the
+    # question "what shape is it and what does it make" is already being asked: a rail entry
+    # per diagram makes the rail long enough that the sections stop being findable.
 ]
 
 

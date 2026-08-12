@@ -548,6 +548,10 @@
           fit = fitToReference(viewer, struct);
         }
         viewer._afFit = fit;
+        // The state node, kept so the model can be taken off again. Without a handle on it
+        // the only way to get rid of the model was to reload the whole viewer, which is why
+        // the button could only ever add.
+        viewer._afRef = struct.ref;
         if (fit && fit.failed) fit = null;   // nothing to apply, but the reason survives
         var placed = (fit && ST)
           ? plugin.build().to(struct).apply(ST.Model.TransformStructureConformation, {
@@ -574,6 +578,28 @@
       .then(function () {
         try { plugin.managers.camera.reset(); } catch (e) { /* nothing to frame */ }
       });
+  }
+
+  /**
+   * Take the AlphaFold model back off, leaving the experimental structures untouched.
+   *
+   * Deletes the one state node the model was built under, which takes its representation
+   * and its transform with it. Returns whether there was anything to remove, so the caller
+   * can keep its button label honest rather than assuming the removal happened.
+   */
+  function removeAlphaFold(viewer) {
+    if (!viewer || !viewer._afRef) return Promise.resolve(false);
+    var ref = viewer._afRef;
+    viewer._afRef = null;
+    viewer._afFit = null;
+    return Promise.resolve()
+      .then(function () { return viewer.plugin.build().delete(ref).commit(); })
+      .then(function () {
+        // No camera reset: the reader is looking at something, and snapping the view back
+        // because a second model went away is a change they did not ask for.
+        return true;
+      })
+      .catch(function () { return false; });   // already gone with the state tree
   }
 
   /**
@@ -632,7 +658,42 @@
      runs on load, on two animation frames, after the drawer's transition and on every
      resize, so 0.6 became 0.6 cubed and a large ligand was clipped on all four sides while a
      small one looked right. */
-  var LIGAND_RADII = 1.45;
+  // Exactly inscribed, with no extra padding. Measured on NDG in a 433x318 drawer: at 1.08
+  // the molecule filled 46% of the width, and the sphere is only about a tenth larger than
+  // the molecule's own 3D diagonal, so the empty frame is the cost of bounding an elongated
+  // object with a sphere rather than slack that can be tuned away. What a sphere DOES buy is
+  // that nothing clips at any orientation the reader orbits to, which is the fault being
+  // fixed here, so it is not traded off for a few more per cent.
+  var LIGAND_MARGIN = 1.0;
+
+  /* How far the camera has to be to hold a sphere of `radius` inside the viewport.
+   *
+   * Derived rather than tuned. A perspective camera sees a half-angle of fov/2, so a sphere
+   * of radius r is exactly inscribed at r / sin(fov/2): at Mol*'s 45 degrees that is 2.61 r,
+   * which is where its own framing sits and why that framing is right. The 1.45 r this used
+   * to apply is nearer than the sphere is wide, so the molecule was pushed off every edge at
+   * once. It looked like a centring fault and was a distance fault, and the two are hard to
+   * tell apart when the result is a molecule running out of the frame.
+   *
+   * The aspect ratio is the other half. The field of view is vertical, so on a drawer panel
+   * wider than it is tall the vertical direction is the tight one, and framing to the
+   * horizontal half-angle clips the top and bottom of anything tall. The smaller of the two
+   * is the one that has to fit.
+   */
+  function fitDistance(c3, radius) {
+    var cam = c3.camera, st = cam.state || {};
+    // Orthographic scale does not depend on distance; moving the camera would change
+    // nothing except which planes clip.
+    if (st.mode === "orthographic") return null;
+    var fovY = st.fov || Math.PI / 4;
+    var vp = cam.viewport || {};
+    var aspect = (vp.width && vp.height) ? (vp.width / vp.height) : 1;
+    var halfY = fovY / 2;
+    var halfX = Math.atan(Math.tan(halfY) * aspect);
+    var half = Math.min(halfX, halfY);
+    if (!(half > 0.01)) return null;
+    return (radius / Math.sin(half)) * LIGAND_MARGIN;
+  }
 
   /** Resize the canvas to its element, then frame the scene in it. In that order. */
   function fitViewer(viewer, zoom) {
@@ -674,7 +735,9 @@
         var now = Math.sqrt(dx * dx + dy * dy + dz * dz);
         if (!(now > 1e-6)) return;
         // Along the direction the camera is already looking from, at an absolute distance.
-        var want = sphere.radius * zoom, k = want / now;
+        var want = fitDistance(c3, sphere.radius);
+        if (want == null) return;             // orthographic, or no usable viewport yet
+        var k = want / now;
         cam.setState({
           position: [st.target[0] + dx * k, st.target[1] + dy * k, st.target[2] + dz * k],
         });
@@ -744,15 +807,15 @@
             try {
               c3set(viewer, { camera: { helper: { axes: { name: "off", params: {} } } } });
             } catch (e) { /* a build that names it differently: leave it */ }
-            fitViewer(viewer, LIGAND_RADII);
+            fitViewer(viewer, true);
             requestAnimationFrame(function () { requestAnimationFrame(function () {
-              fitViewer(viewer, LIGAND_RADII);
+              fitViewer(viewer, true);
             }); });
             // After the drawer transition has finished, whatever its duration turned out
             // to be, and again on any later resize: expanding the viewport or rotating a
             // phone otherwise leaves the same mismatch.
-            setTimeout(function () { fitViewer(viewer, LIGAND_RADII); }, 380);
-            watchSize(mount, function () { fitViewer(viewer, LIGAND_RADII); });
+            setTimeout(function () { fitViewer(viewer, true); }, 380);
+            watchSize(mount, function () { fitViewer(viewer, true); });
             return viewer;
           });
       });
@@ -965,6 +1028,7 @@
 
   global.CodswallopViewer = {
     show: show, ensure: ensureMolstar, superpose: superpose, addAlphaFold: addAlphaFold,
+    removeAlphaFold: removeAlphaFold,
     focusResidue: focusResidue, showLigand: showLigand,
     conservationColour: conservationColour, _bestOffset: bestOffset,
   };

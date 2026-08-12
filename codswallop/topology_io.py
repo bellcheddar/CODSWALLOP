@@ -17,7 +17,9 @@ from . import config
 logger = logging.getLogger(__name__)
 
 # 2: carries the PDBe 2D fold diagram alongside the DSSP elements.
-VERSION = 2
+# 3: the PDBe fold-diagram elements carry seed coordinates alongside the entry's own
+# numbering, so the diagram's labels agree with every other panel's.
+VERSION = 3
 TOPOLOGY_DIR = config.DATA_DIR / "topology"
 
 
