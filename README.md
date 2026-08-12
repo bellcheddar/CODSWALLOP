@@ -6,7 +6,7 @@
 
 <table>
 <tr>
-<td>🌐 <b>Website</b></td><td><a href="https://marcdeller.com" target="_blank" rel="noopener noreferrer">marcdeller.com</a></td>
+<td>🌐 <b>App</b></td><td><a href="https://codswallop.mdeller.com" target="_blank" rel="noopener noreferrer">codswallop.mdeller.com</a></td>
 <td>✉️ <b>Contact</b></td><td><a href="mailto:marc@marcdeller.com">marc@marcdeller.com</a></td>
 <td>🐙 <b>GitHub</b></td><td><a href="https://github.com/bellcheddar/CODSWALLOP" target="_blank" rel="noopener noreferrer">bellcheddar/CODSWALLOP</a></td>
 </tr>
