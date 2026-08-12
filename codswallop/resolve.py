@@ -49,9 +49,37 @@ def clean_sequence(text: str) -> str:
     return re.sub(r"[^A-Za-z*\-]", "", "".join(lines)).upper()
 
 
+def spacing_looks_like_sequence(text: str) -> bool:
+    """Whether the whitespace in this text is a sequence's whitespace rather than prose's.
+
+    `clean_sequence` deletes whitespace before the alphabet test, which makes any phrase
+    built from letters that are all amino-acid codes indistinguishable from a sequence.
+    **"vascular endothelial growth factor receptor"** is one: strip the spaces and it is
+    thirty-nine perfectly valid residues, so it was classified as a pasted sequence and
+    seeded a nonsense family instead of searching for the receptor.
+
+    Whitespace is what separates the two, because a sequence's whitespace is layout. It
+    arrives in uniform blocks (ten per group, sixty per line, with a short final one) or it
+    arrives as a few long runs from a page that wrapped it awkwardly. Prose arrives as words,
+    of assorted middling lengths. Length alone cannot do it: the shortest words in that
+    phrase are six characters, which is a legitimate block size.
+    """
+    tokens = text.split()
+    if len(tokens) < 2:
+        return True
+    body = [len(t) for t in tokens[:-1]]
+    # Uniform blocks, with the last group allowed to be short: the standard layouts.
+    if len(set(body)) == 1 and len(tokens[-1]) <= body[0]:
+        return True
+    # Otherwise every run must be too long to be a word.
+    return min(len(t) for t in tokens) >= 15
+
+
 def looks_like_sequence(text: str) -> bool:
     if text.strip().startswith(">"):
         return True
+    if not spacing_looks_like_sequence(text):
+        return False
     seq = clean_sequence(text)
     if len(seq) < MIN_SEQUENCE:
         return False

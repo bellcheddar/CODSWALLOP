@@ -157,8 +157,8 @@ def cmd_topology(args) -> int:
 def cmd_contacts(args) -> int:
     """Run PLIP over a family's ligand-bound entries and store the fingerprint.
 
-    Workstation only: this shells out to PLIP and OpenBabel. Push the artefact with
-    the droplet builds it in place, so there is nothing to ship.
+    Runs wherever PLIP and OpenBabel are installed, which now includes the droplet: it
+    builds its own artefacts in place and there is nothing to ship.
     """
     from codswallop import contacts, family, resolve
 
@@ -184,6 +184,18 @@ def cmd_contacts(args) -> int:
         print("  No contacts found (nothing ligand-bound, or every conversion failed).",
               file=sys.stderr)
         return 1
+    if not art["n_contacts"]:
+        # An empty fingerprint is an answer, not an error, and exits 0 so the worker records
+        # it as done. A family with nothing ligand-bound has no contacts to find however
+        # many times it is retried, and failing here left it advertising the wrong reason.
+        if not art.get("holo_entries"):
+            print("  nothing ligand-bound in this family: no fingerprint to compute")
+        else:
+            print(f"  {art['entries_analysed']} entries analysed "
+                  f"({art['entries_failed']} failed, {art['entries_too_big']} too big), "
+                  f"no contacts placed on the seed")
+        print(f"  wrote {contacts.artefact_path(fam['slug'])}")
+        return 0
     print(f"  {art['entries_analysed']} entries analysed ({art['entries_failed']} failed), "
           f"{art['n_contacts']:,} contacts, {time.time() - t0:.0f}s")
     print(f"  types: {', '.join(f'{k} {v}' for k, v in art['by_type'][:5])}")

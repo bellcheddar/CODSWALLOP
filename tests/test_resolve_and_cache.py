@@ -259,3 +259,68 @@ def test_the_free_text_path_is_ranked_too_not_only_the_gene_path(monkeypatch):
     assert hits[0]["organism"] == "Homo sapiens", "the free-text path is still unranked"
     assert hits[0]["reviewed"] is True
     assert hits[-1]["accession"] == "X1", "unreviewed must still sink below reviewed"
+
+
+def test_a_name_that_matches_beats_a_human_protein_that_merely_contains_the_domain():
+    """Human-first is only right when a human protein of that name exists.
+
+    Searching "Beta-lactamase" ranked eight human proteins above every real one, because
+    humans have no beta-lactamase and the hits were proteins that merely CONTAIN a
+    beta-lactamase-like fold: Apollo exonuclease, MBLAC2, COA7, dipeptidase 1, LACTB2. The
+    enzymes themselves are bacterial and among the most deposited proteins in the archive,
+    and `Beta-lactamase` ranked ninth.
+    """
+    from codswallop import uniprot
+    hits = uniprot.rank_candidates([
+        {"accession": "Q9H816", "reviewed": True, "organism": "Homo sapiens",
+         "name": "5' exonuclease Apollo"},
+        {"accession": "P83111", "reviewed": True, "organism": "Homo sapiens",
+         "name": "Serine beta-lactamase-like protein LACTB, mitochondrial"},
+        {"accession": "P00811", "reviewed": True, "organism": "Escherichia coli",
+         "name": "Beta-lactamase"},
+        {"accession": "A4D2B0", "reviewed": True, "organism": "Homo sapiens",
+         "name": "Metallo-beta-lactamase domain-containing protein 1"},
+    ], "Beta-lactamase")
+    assert hits[0]["accession"] == "P00811", "the actual enzyme must lead its own search"
+    # Apollo does not carry the words at all: it matched on the domain, so it sinks below
+    # the two human proteins that at least mention them.
+    assert hits[-1]["accession"] == "Q9H816"
+
+
+def test_human_first_still_decides_when_the_names_match_equally_well():
+    """The VEGFR fix must survive the beta-lactamase fix: no protein is named "VEGFR", so
+    every candidate ties on name and human-first is what breaks the tie."""
+    from codswallop import uniprot
+    hits = uniprot.rank_candidates([
+        {"accession": "Q8QHL3", "reviewed": True, "organism": "Gallus gallus",
+         "name": "Vascular endothelial growth factor receptor 2"},
+        {"accession": "P17948", "reviewed": True, "organism": "Homo sapiens",
+         "name": "Vascular endothelial growth factor receptor 1"},
+    ], "VEGFR")
+    assert hits[0]["accession"] == "P17948"
+
+
+def test_a_phrase_of_amino_acid_letters_is_not_a_pasted_sequence():
+    """`clean_sequence` deletes whitespace before the alphabet test, so any phrase whose
+    letters are all residue codes read as a sequence. "vascular endothelial growth factor
+    receptor" is thirty-nine valid residues once the spaces go, and seeded a nonsense family
+    rather than searching for the receptor."""
+    from codswallop.resolve import classify
+    for phrase in ("vascular endothelial growth factor receptor",
+                   "carbonic anhydrase 2", "green fluorescent protein",
+                   "tumour necrosis factor alpha"):
+        assert classify(phrase) == "text", phrase
+
+
+def test_the_layouts_a_real_sequence_actually_arrives_in_still_parse():
+    """The guard is on the SHAPE of the whitespace, so every way a sequence is really pasted
+    has to keep working: bare, FASTA, ten-residue blocks, sixty-column lines, and the ragged
+    wrapping you get copying out of a PDF."""
+    from codswallop.resolve import classify
+    seq = ("KVFGRCELAAAMKRHGLDNYRGYSLGNWVCAAKFESNFNTQATNRNTDGSTDYGILQINSRWWCNDGRTPGSRN"
+           "LCNIPCSALLSSDITASVNCAKKIVSDGNGMNAWVAWRNRCKGTDVQAWIRGCRL")
+    blocks = " ".join(seq[i:i + 10] for i in range(0, len(seq), 10))
+    lines = seq[:60] + "\n" + seq[60:]
+    ragged = seq[:47] + "\n" + seq[47:99] + "\n" + seq[99:]
+    for text in (seq, ">sp|P00698 LYSC_CHICK\n" + lines, blocks, lines, ragged):
+        assert classify(text) == "sequence", text[:40]

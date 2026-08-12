@@ -6,6 +6,7 @@ isoform machinery this API also exposes belong to Phase 2's construct diff engin
 
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 from . import config, db, http
@@ -123,7 +124,7 @@ def search(query: str, size: int = 12) -> list[dict]:
     # here rather than in `by_gene` alone: searching "vascular endothelial growth factor
     # receptor" put Mus musculus first and a snake third, with the human protein below both.
     return rank_candidates(db.cached(("uniprot_search", PARSE_VERSION, query, size), fetch)
-                           or [])
+                           or [], query)
 
 
 def by_gene(gene: str, size: int = 12) -> list[dict]:
@@ -147,21 +148,72 @@ def by_gene(gene: str, size: int = 12) -> list[dict]:
             if extra["accession"] not in seen:
                 seen.add(extra["accession"])
                 hits.append(extra)
-    return rank_candidates(hits)[:size]
+    return rank_candidates(hits, gene)[:size]
 
 
-def rank_candidates(hits: list[dict]) -> list[dict]:
-    """Reviewed first, then human, then everything else.
+def search_terms(query: str) -> str:
+    """The words a person actually typed, with any field prefix stripped.
 
-    Reviewed-before-unreviewed is the existing rule and the important one. Human-first inside
-    it is new: a disambiguation card for a receptor that lists zebrafish above *Homo sapiens*
+    `search` is called with `gene:ABL1` and `protein_name:"VEGFR"` as well as bare text, and
+    the ranking needs the terms rather than the query syntax around them.
+    """
+    text = (query or "").strip()
+    if ":" in text:
+        head, _, tail = text.partition(":")
+        if head.strip().lower() in {"gene", "protein_name", "gene_exact", "family", "organism"}:
+            text = tail
+    return text.strip().strip('"').strip()
+
+
+def name_match(name: str, terms: str) -> int:
+    """How well a protein's name answers what was typed. Lower is better.
+
+    0 exact, 1 the name begins with it, 2 it appears as a whole word, 3 not in the name at
+    all. The last case is not a non-match overall: UniProt also matches on gene names, on
+    keywords and on the *domains* a protein contains, which is exactly how the accident
+    below happens.
+    """
+    n, t = (name or "").strip().lower(), (terms or "").strip().lower()
+    if not t or not n:
+        return 3
+    if n == t:
+        return 0
+    if n.startswith(t):
+        return 1
+    return 2 if re.search(r"\b" + re.escape(t) + r"\b", n) else 3
+
+
+def rank_candidates(hits: list[dict], query: str = "") -> list[dict]:
+    """Reviewed first, then how well the name matches, then human, then alphabetical.
+
+    Reviewed-before-unreviewed is the original rule and still the important one. Human-first
+    came next: a disambiguation card for a receptor that lists zebrafish above *Homo sapiens*
     is technically a list and practically the wrong one, since a structural biologist typing
     a receptor's name almost always wants the human protein and can see the rest below it.
+
+    Name-match sits ABOVE human because human-first alone is only right when a human protein
+    of that name exists. **Beta-lactamase** is the case that proves it: humans do not have
+    one, so the eight human hits are proteins that merely CONTAIN a beta-lactamase-like fold
+    (Apollo exonuclease, MBLAC2, COA7, dipeptidase 1, LACTB2 and so on), and human-first put
+    every one of them above the actual enzymes, which are bacterial and are among the most
+    deposited proteins in the archive. `Beta-lactamase` itself ranked ninth.
+
+    The remaining term is why the top hit was "5' exonuclease Apollo": with reviewed and
+    human tied across all eight, the tie-break was the NAME, alphabetically, so first place
+    went to whichever protein sorted first, decided by an apostrophe. Alphabetical is a fine
+    last resort for a stable order and was never meant to choose the answer.
+
+    Human-first is preserved intact wherever it was doing its job: it still decides between
+    candidates whose names match the query equally well, which is the VEGFR case, since no
+    protein there is named "VEGFR" at all and all of them tie at 3.
     """
+    terms = search_terms(query)
+
     def key(h):
         organism = (h.get("organism") or "").lower()
         return (
             0 if h.get("reviewed") else 1,
+            name_match(h.get("name") or "", terms),
             0 if organism.startswith("homo sapiens") else 1,
             (h.get("name") or "").lower(),
         )

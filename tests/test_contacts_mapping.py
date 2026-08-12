@@ -80,3 +80,44 @@ def test_an_unmappable_residue_is_dropped_rather_than_placed():
     frag = CA2[100:140]
     m = contacts._chain_mappings({"A": _chain(frag, start=1)}, CA2, only={"A"})
     assert ("A", 500) not in m
+
+
+def test_a_family_with_nothing_ligand_bound_records_an_answer_not_a_failure(tmp_path,
+                                                                            monkeypatch):
+    """An apo family has no fingerprint to compute and never will have one.
+
+    `build` returned None for it, which was indistinguishable from "PLIP is not installed",
+    so the Contacts tab advised running the job on a workstation that no longer exists. The
+    worker marks a family served whether or not contacts succeeded, so nothing ever retried
+    it and the wrong message was permanent. Beta-lactamase inhibitory protein: 0 of 8
+    entities ligand-bound.
+    """
+    from codswallop import contacts
+    monkeypatch.setattr(contacts, "CONTACT_DIR", tmp_path)
+    monkeypatch.setattr(contacts, "artefact_path", lambda slug: tmp_path / f"{slug}.json")
+
+    fam = {"slug": "apo-family", "name": "Apo family",
+           "members": [{"pdb_id": "1ABC", "has_ligand": False, "seq_id": 1}]}
+    art = contacts.build(fam)
+
+    assert art is not None, "an apo family gets an artefact, not None"
+    assert art["n_contacts"] == 0
+    assert art["holo_entries"] == 0, "0 says the family is apo rather than that PLIP failed"
+    assert (tmp_path / "apo-family.json").exists(), "the answer has to be durable"
+    assert art["version"] == contacts.VERSION, "or it is stale on arrival and rebuilt for ever"
+
+
+def test_analysed_entries_that_yield_nothing_are_told_apart_from_an_apo_family(tmp_path,
+                                                                               monkeypatch):
+    """Both write an empty artefact, and the counts are what distinguish them: 0 analysed
+    with 0 holo means there was nothing to do, while entries analysed and no contacts means
+    something is worth chasing."""
+    from codswallop import contacts
+    monkeypatch.setattr(contacts, "CONTACT_DIR", tmp_path)
+    monkeypatch.setattr(contacts, "artefact_path", lambda slug: tmp_path / f"{slug}.json")
+
+    fam = {"slug": "quiet-family", "name": "Quiet family", "members": []}
+    art = contacts._empty_artefact(fam, holo_entries=12, analysed=12, failed=0, too_big=3)
+    assert art["holo_entries"] == 12 and art["entries_analysed"] == 12
+    assert art["entries_too_big"] == 3, "a skip is a decision, not a failure"
+    assert art["n_contacts"] == 0

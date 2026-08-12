@@ -290,6 +290,38 @@ def _parse_report(xml_path: Path, pdb_id: str) -> list[dict]:
 # --------------------------------------------------------------------------------------
 # Family-wide
 # --------------------------------------------------------------------------------------
+def _empty_artefact(fam: dict, holo_entries: int = 0, analysed: int = 0, failed: int = 0,
+                    too_big: int = 0, seconds: float = 0.0) -> dict:
+    """A complete, current artefact recording that there is no fingerprint to draw.
+
+    Same shape as a full one, with the collections empty, so every reader of this artefact
+    keeps working without learning a second format. `n_contacts` of 0 is the thing to test.
+    """
+    artefact = {
+        "version": VERSION,
+        "slug": fam["slug"],
+        "built_at": int(time.time()),
+        "entries_analysed": analysed,
+        "entries_failed": failed,
+        "entries_too_big": too_big,
+        "max_structure_mb": MAX_STRUCTURE_MB,
+        "seconds": seconds,
+        "n_contacts": 0,
+        # How many entries carry a designed ligand at all: 0 means the family is apo and no
+        # amount of compute changes that, which is the distinction the panel needs to make.
+        "holo_entries": holo_entries,
+        "by_type": [],
+        "hot_residues": [],
+        "ligands": [],
+        "fingerprint": {},
+        "positions": [],
+        "metal_coordination": {},
+    }
+    CONTACT_DIR.mkdir(parents=True, exist_ok=True)
+    artefact_path(fam["slug"]).write_text(json.dumps(artefact, separators=(",", ":")))
+    return artefact
+
+
 def build(fam: dict, max_entries: int = 60, progress=None) -> Optional[dict]:
     """Run PLIP across a family's representative ligand-bound entries.
 
@@ -316,7 +348,16 @@ def build(fam: dict, max_entries: int = 60, progress=None) -> Optional[dict]:
         if len(chosen) >= max_entries:
             break
     if not chosen:
-        return None
+        # Not a failure: this family genuinely has nothing ligand-bound, so there is no
+        # fingerprint to compute and there never will be one. Recorded as an artefact rather
+        # than returned as None, because None was indistinguishable from "PLIP is missing"
+        # and the panel said the latter. Beta-lactamase inhibitory protein has 0 ligand-bound
+        # entities of 8, and its Contacts tab advised running the job on a workstation.
+        #
+        # Writing it also settles the queue. The worker marks a family served whether or not
+        # contacts succeeded, so a family that reports failure here is never retried and sat
+        # on that message permanently; an artefact makes the answer durable and honest.
+        return _empty_artefact(fam, holo_entries=len(holo))
 
     all_rows: list[dict] = []
     ok = failed = too_big = 0
@@ -366,7 +407,12 @@ def build(fam: dict, max_entries: int = 60, progress=None) -> Optional[dict]:
                 all_rows.append(r)
 
     if not all_rows:
-        return None
+        # Entries were analysed and produced no contact we could place on the seed. Kept
+        # apart from the case above by its counts, which are what say which happened: 0
+        # analysed and 0 too big means there was nothing to do, while 40 analysed and 0
+        # contacts means something is wrong and should be chased.
+        return _empty_artefact(fam, holo_entries=len(holo), analysed=ok, failed=failed,
+                               too_big=too_big, seconds=round(time.time() - t0, 1))
 
     # ---- the family fingerprint --------------------------------------------------------
     per_residue: Counter = Counter()
@@ -447,6 +493,9 @@ def build(fam: dict, max_entries: int = 60, progress=None) -> Optional[dict]:
         "max_structure_mb": MAX_STRUCTURE_MB,
         "seconds": round(time.time() - t0, 1),
         "n_contacts": len(all_rows),
+        # Present on every artefact, empty or not, so a reader never has to treat its
+        # absence as a value.
+        "holo_entries": len(holo),
         "by_type": per_type.most_common(),
         "hot_residues": hot,
         "ligands": top_ligands,

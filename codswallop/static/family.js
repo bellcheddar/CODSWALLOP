@@ -2060,9 +2060,10 @@
     if (!t || !t.elements || !t.elements.length) {
       $("topoSub").textContent = "no topology for this family yet";
       svg.innerHTML = "";
-      $("topoIntro").innerHTML = '<p class="empty">Secondary structure is assigned by DSSP ' +
-        "on a workstation and shipped as an artefact, like the structural embedding. This " +
-        "family has been queued for it.</p>";
+      $("topoIntro").innerHTML = '<p class="empty">Secondary structure is assigned from the ' +
+        "reference structure and stored as an artefact, like the structural embedding. This " +
+        "family has been queued for it, and the server builds it within the quarter hour. " +
+        "Some structures have no published 2D layout, in which case this stays empty.</p>";
       $("topoLegend").innerHTML = "";
       return;
     }
@@ -2731,7 +2732,8 @@
       el.innerHTML = "<b>Placeholder layout, not a structural measurement.</b> Outward is " +
         "decreasing identity to the seed, ranked; sector is source organism; size is " +
         "1/resolution; colour is method; amber halo is ligand-bound. The real embedding " +
-        "needs a pairwise TM-align on a workstation, so it cannot run while you wait. " +
+        "needs an all-versus-all TM-align, which takes minutes to hours and so cannot run " +
+        "while you wait. " +
         "<b>This family has been queued for it.</b>";
     }
   }
@@ -2741,8 +2743,27 @@
     var c = S.family.contacts;
     if (!c) {
       $("contactSub").textContent = "no interaction profile for this family yet";
-      $("hotResidues").innerHTML = '<p class="empty">Run <code>CODSWALLOP.py contacts</code> ' +
-        "on a workstation: PLIP and OpenBabel are not installed on the server.</p>";
+      $("hotResidues").innerHTML = '<p class="empty">PLIP has not run over this family yet. ' +
+        "It is queued, and the server builds it: the interaction profile is the slowest " +
+        "artefact, a minute or more per entry, so it arrives after the map and the diagram.</p>";
+      $("fingerprint").innerHTML = "";
+      return;
+    }
+    // An artefact with no contacts is an answer, and which answer depends on whether there
+    // was anything to analyse. Both used to render as "run this on a workstation", which was
+    // wrong twice over: nothing needs running, and there is no workstation.
+    if (!c.n_contacts) {
+      var apo = !c.holo_entries;
+      $("contactSub").textContent = apo ? "nothing ligand-bound in this family"
+                                        : "no interactions detected";
+      $("hotResidues").innerHTML = '<p class="empty">' + (apo
+        ? "None of this family's structures were solved with a bound ligand, so there is no " +
+          "interaction profile to draw. This is the answer, not a missing artefact: PLIP " +
+          "detects contacts between a protein and a ligand, and there is no ligand here."
+        : "PLIP ran over " + c.entries_analysed + " ligand-bound " +
+          (c.entries_analysed === 1 ? "entry" : "entries") +
+          (c.entries_too_big ? ", skipping " + c.entries_too_big + " too large to convert" : "") +
+          " and placed no contact on the seed sequence.") + "</p>";
       $("fingerprint").innerHTML = "";
       return;
     }
