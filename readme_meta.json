@@ -1,8 +1,9 @@
 {
   "README.md": {
     "repo": "CODSWALLOP",
-    "emoji": "🗄️",
+    "emoji": "\ud83d\uddc4\ufe0f",
     "title": "CODSWALLOP",
-    "tagline": "The PDB, summarised: every entry for a protein family, cross-referenced in ninety seconds."
+    "tagline": "The PDB, summarised: every entry for a protein family, cross-referenced in ninety seconds.",
+    "live": "codswallop.mdeller.com"
   }
 }
