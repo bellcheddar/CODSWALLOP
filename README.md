@@ -2,7 +2,7 @@
 
 > **The PDB, summarised: every entry for a protein family, cross-referenced in ninety seconds.**
 
-![python](https://img.shields.io/badge/python-3.11-3776AB?logo=python&logoColor=white) ![flask](https://img.shields.io/badge/flask-3.0-000000?logo=flask&logoColor=white) ![phase](https://img.shields.io/badge/phase-4%20of%204-fcb900) ![licence](https://img.shields.io/badge/licence-MIT-467FF7) ![author](https://img.shields.io/badge/author-Marc%20C.%20Deller%2C%20D.Phil.-1C244B)
+[![live](https://img.shields.io/badge/live-codswallop.mdeller.com-00d084?logo=icloud&logoColor=white)](https://codswallop.mdeller.com) ![python](https://img.shields.io/badge/python-3.12%2B-3776AB?logo=python&logoColor=white) ![flask](https://img.shields.io/badge/flask-3.1-000000?logo=flask&logoColor=white) ![gunicorn](https://img.shields.io/badge/gunicorn-26.0-499848?logo=gunicorn&logoColor=white) ![nginx](https://img.shields.io/badge/nginx-proxied-009639?logo=nginx&logoColor=white) ![sqlite](https://img.shields.io/badge/sqlite-WAL-003B57?logo=sqlite&logoColor=white) ![biopython](https://img.shields.io/badge/biopython-1.88-1a7f5a) ![biotite](https://img.shields.io/badge/biotite-1.7-6b4fbb) ![tmtools](https://img.shields.io/badge/TM--align-tmtools%200.3-b5651d) ![plip](https://img.shields.io/badge/PLIP-3.0-c2410f) ![gemmi](https://img.shields.io/badge/gemmi-0.7-4a6fa5) ![numpy](https://img.shields.io/badge/numpy-2.5-013243?logo=numpy&logoColor=white) ![molstar](https://img.shields.io/badge/Mol*-5.11-2b6cb0) ![tabulator](https://img.shields.io/badge/tabulator-6.3-1e73be) ![pytest](https://img.shields.io/badge/pytest-195%20passing-0A9EDC?logo=pytest&logoColor=white) ![rcsb](https://img.shields.io/badge/data-RCSB%20%C2%B7%20PDBe%20%C2%B7%20UniProt%20%C2%B7%20InterPro-6b7c93) ![phase](https://img.shields.io/badge/phase-4%20of%204-fcb900) ![licence](https://img.shields.io/badge/licence-MIT-467FF7) ![author](https://img.shields.io/badge/author-Marc%20C.%20Deller%2C%20D.Phil.-1C244B)
 
 <table>
 <tr>
@@ -82,7 +82,7 @@ This is also why the panel is fitted the way it is. Those two points sit at x = 
 
 | Layer | Choice | Note |
 |---|---|---|
-| Backend | Python 3.11, Flask, gunicorn | No compiled toolchain needed on the droplet in phase 1 |
+| Backend | Python 3.12, Flask 3.1, gunicorn 26 | No compiled toolchain needed on the droplet in phase 1 |
 | Cache | SQLite (WAL) | Raw API responses plus assembled families, both with a one-week TTL |
 | Front end | Vanilla JS, hand-rolled SVG | The map needs direct control of individual nodes for the cross-highlight pulse |
 | Tables | Tabulator 6.3.1 | Vendored, skinned to the theme tokens |
